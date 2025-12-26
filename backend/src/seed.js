@@ -36,7 +36,7 @@ const run = async () => {
       ownerName: 'Demo Owner',
       ownerEmail: 'owner@demo.com',
       logoUrl: '',
-      active: true,
+      isActive: true,
       subscriptionEnd: new Date(Date.now() + 1000 * 60 * 60 * 24 * 365) // +1 year
     });
     console.log('Created restaurant:', restaurant._id.toString());
@@ -51,8 +51,7 @@ const run = async () => {
     table = await Table.create({
       restaurantId: restaurant._id,
       tableCode,
-      name: 'Table 1',
-      qrUrl: `https://yourapp.com/r/${slug}/t/${tableCode}`
+      isActive: true
     });
     console.log('Created table:', table._id.toString());
   } else {
@@ -61,15 +60,15 @@ const run = async () => {
 
   // Create categories
   const categoriesData = [
-    { name: 'Starters', position: 1 },
-    { name: 'Main Course', position: 2 },
-    { name: 'Beverages', position: 3 }
+    { name: 'Starters', order: 1 },
+    { name: 'Main Course', order: 2 },
+    { name: 'Beverages', order: 3 }
   ];
   const catIds = {};
   for (const c of categoriesData) {
     let cat = await MenuCategory.findOne({ restaurantId: restaurant._id, name: c.name });
     if (!cat) {
-      cat = await MenuCategory.create({ restaurantId: restaurant._id, name: c.name, position: c.position });
+      cat = await MenuCategory.create({ restaurantId: restaurant._id, name: c.name, order: c.order });
       console.log('Created category', c.name);
     } else {
       console.log('Category exists', c.name);

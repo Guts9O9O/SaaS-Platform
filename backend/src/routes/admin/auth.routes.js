@@ -1,9 +1,8 @@
-// backend/src/routes/adminAuth.js
 const express = require('express');
 const router = express.Router();
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
-const User = require('../models/User');
+const User = require('../../models/User');
 require('dotenv').config();
 
 const jwtSecret = process.env.JWT_SECRET || 'replace_this_secret';
@@ -57,6 +56,44 @@ router.post('/login', async (req, res) => {
   } catch (err) {
     console.error('Admin login error:', err);
     return res.status(500).json({ message: 'Server error' });
+  }
+});
+// GET /api/admin/auth/me
+// Returns current logged-in admin context
+router.get('/me', async (req, res) => {
+  try {
+    const authHeader = req.headers.authorization || '';
+    const token = authHeader.startsWith('Bearer ')
+      ? authHeader.slice(7)
+      : null;
+
+    if (!token) {
+      return res.status(401).json({ message: 'Missing token' });
+    }
+
+    const decoded = jwt.verify(token, jwtSecret);
+
+    const user = await User.findById(decoded.userId)
+      .select('_id name email role restaurantId')
+      .lean();
+
+    if (!user) {
+      return res.status(401).json({ message: 'User not found' });
+    }
+
+    return res.json({
+      success: true,
+      user: {
+        id: user._id,
+        name: user.name,
+        email: user.email,
+        role: user.role,
+        restaurantId: user.restaurantId || null,
+      },
+    });
+  } catch (err) {
+    console.error('Admin me error:', err);
+    return res.status(401).json({ message: 'Invalid or expired token' });
   }
 });
 

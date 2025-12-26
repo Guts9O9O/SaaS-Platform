@@ -5,9 +5,9 @@ const {
   getAllRestaurants,
   updateRestaurant,
   updateRestaurantStatus
-} = require("../controllers/adminRestaurantController");
+} = require("../../controllers/admin/restaurant.controller");
 
-const authAdmin = require("../middleware/authAdmin");
+const authAdmin = require("../../middleware/authAdmin");
 
 router.use(authAdmin); // protect ALL routes
 

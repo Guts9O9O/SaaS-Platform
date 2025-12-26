@@ -4,7 +4,7 @@ import { useEffect, useState, useRef } from "react";
 import { io } from "socket.io-client";
 import { useRouter } from "next/navigation";
 
-const RESTAURANT_ID = "693bce41df2c72b4f331b7cf";
+const RESTAURANT_ID = process.env.NEXT_PUBLIC_RESTAURANT_ID || "693bce41df2c72b4f331b7cf";
 
 export default function AdminOrdersPage() {
   const router = useRouter();
@@ -77,19 +77,23 @@ export default function AdminOrdersPage() {
 
   /* ------------------ INITIAL FETCH ------------------ */
   useEffect(() => {
-    fetch("http://localhost:4000/api/admin/orders", {
-    headers: {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/orders`, {
+      headers: {
         Authorization: `Bearer ${localStorage.getItem("adminToken")}`,
-    },
+      },
     })
-    .then((res) => res.json())
-    .then((data) => setOrders(data.orders || []))
-    .catch(() => setError("Failed to load orders"));
+      .then((res) => res.json())
+      .then((data) => {
+        // Handle both response formats
+        const ordersList = data.orders || data || [];
+        setOrders(Array.isArray(ordersList) ? ordersList : []);
+      })
+      .catch(() => setError("Failed to load orders"));
   }, []);
 
   /* ------------------ SOCKET ------------------ */
   useEffect(() => {
-    const socket = io("http://localhost:4000", { withCredentials: true });
+    const socket = io(process.env.NEXT_PUBLIC_API_URL, { withCredentials: true });
 
     socket.emit("join_admin_room", { restaurantId: RESTAURANT_ID });
 
@@ -122,7 +126,7 @@ export default function AdminOrdersPage() {
       setUpdatingId(orderId);
 
       const res = await fetch(
-        `http://localhost:4000/api/orders/${orderId}/status`,
+        `${process.env.NEXT_PUBLIC_API_URL}/api/orders/${orderId}/status`,
         {
           method: "PATCH",
           headers: {
@@ -155,9 +159,9 @@ export default function AdminOrdersPage() {
   }, {});
 
   function sortOrders(list) {
-    const priority = { ACCEPTED: 1, PREPARING: 2, SERVED: 3 };
+    const priority = { ACCEPTED: 1, IN_KITCHEN: 2, READY: 3, PREPARING: 4, SERVED: 5 };
     return [...list].sort(
-      (a, b) => priority[a.status] - priority[b.status]
+      (a, b) => (priority[a.status] || 999) - (priority[b.status] || 999)
     );
   }
 
@@ -258,17 +262,48 @@ export default function AdminOrdersPage() {
                     {!kitchenMode && (
                       <>
                         {order.status === "ACCEPTED" && (
-                          <button
-                            onClick={() =>
-                              updateStatus(order._id, "PREPARING")
-                            }
-                            className="px-4 py-2 bg-blue-600 rounded-lg"
-                          >
-                            Mark Preparing
-                          </button>
+                          <>
+                            <button
+                              onClick={() =>
+                                updateStatus(order._id, "IN_KITCHEN")
+                              }
+                              className="px-3 py-1 bg-yellow-600 rounded text-sm hover:bg-yellow-700"
+                            >
+                              Start Cooking
+                            </button>
+                            <button
+                              onClick={() =>
+                                updateStatus(order._id, "PREPARING")
+                              }
+                              className="px-3 py-1 bg-blue-600 rounded text-sm hover:bg-blue-700"
+                            >
+                              Mark Preparing
+                            </button>
+                          </>
                         )}
 
-                        {order.status === "PREPARING" && (
+                        {order.status === "IN_KITCHEN" && (
+                          <>
+                            <button
+                              onClick={() =>
+                                updateStatus(order._id, "READY")
+                              }
+                              className="px-3 py-1 bg-purple-600 rounded text-sm hover:bg-purple-700"
+                            >
+                              Mark Ready
+                            </button>
+                            <button
+                              onClick={() =>
+                                updateStatus(order._id, "PREPARING")
+                              }
+                              className="px-3 py-1 bg-blue-600 rounded text-sm hover:bg-blue-700"
+                            >
+                              Back to Preparing
+                            </button>
+                          </>
+                        )}
+
+                        {["READY", "PREPARING"].includes(order.status) && (
                           <button
                             onClick={() =>
                               updateStatus(order._id, "SERVED")
@@ -285,11 +320,33 @@ export default function AdminOrdersPage() {
                     {kitchenMode && order.status === "ACCEPTED" && (
                       <button
                         onClick={() =>
-                          updateStatus(order._id, "PREPARING")
+                          updateStatus(order._id, "IN_KITCHEN")
                         }
                         className="px-6 py-2 bg-blue-600 rounded-lg font-semibold"
                       >
-                        Start Preparing
+                        Start Cooking
+                      </button>
+                    )}
+
+                    {kitchenMode && order.status === "IN_KITCHEN" && (
+                      <button
+                        onClick={() =>
+                          updateStatus(order._id, "READY")
+                        }
+                        className="px-6 py-2 bg-purple-600 rounded-lg font-semibold"
+                      >
+                        Mark Ready
+                      </button>
+                    )}
+
+                    {kitchenMode && ["READY", "PREPARING"].includes(order.status) && (
+                      <button
+                        onClick={() =>
+                          updateStatus(order._id, "SERVED")
+                        }
+                        className="px-6 py-2 bg-green-600 rounded-lg font-semibold"
+                      >
+                        Serve Order
                       </button>
                     )}
                   </div>

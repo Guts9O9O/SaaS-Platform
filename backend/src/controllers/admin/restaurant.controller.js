@@ -1,4 +1,4 @@
-const Restaurant = require("../models/Restaurant");
+const Restaurant = require("../../models/Restaurant");
 const slugify = require("slugify");
 
 /* ---------------- CREATE ---------------- */
@@ -22,18 +22,18 @@ exports.createRestaurant = async (req, res) => {
     }
 
     const restaurant = await Restaurant.create({
-        name,
-        slug,
-        ownerName: ownerName || undefined,
-        ownerEmail,
-        logoUrl: logoUrl || undefined,
-        subscriptionEnd: subscriptionEnd || undefined,
-        active: true
+      name,
+      slug,
+      ownerName,
+      ownerEmail,
+      logoUrl,
+      subscriptionEnd,
+      isActive: true,
     });
 
     res.status(201).json(restaurant);
   } catch (err) {
-    console.error(err);
+    console.error("Create restaurant error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -48,6 +48,7 @@ exports.getAllRestaurants = async (req, res) => {
     const restaurants = await Restaurant.find().sort({ createdAt: -1 });
     res.json(restaurants);
   } catch (err) {
+    console.error("Get restaurants error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -70,6 +71,7 @@ exports.updateRestaurant = async (req, res) => {
 
     res.json(restaurant);
   } catch (err) {
+    console.error("Update restaurant error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };
@@ -81,16 +83,24 @@ exports.updateRestaurantStatus = async (req, res) => {
       return res.status(403).json({ message: "Forbidden" });
     }
 
-    const { active } = req.body;
+    const { isActive } = req.body;
+
+    // 🔒 CRITICAL GUARD
+    if (typeof isActive !== "boolean") {
+      return res
+        .status(400)
+        .json({ message: "isActive must be boolean" });
+    }
 
     const restaurant = await Restaurant.findByIdAndUpdate(
       req.params.id,
-      { active },
+      { isActive },
       { new: true }
     );
 
     res.json(restaurant);
   } catch (err) {
+    console.error("Update restaurant status error:", err);
     res.status(500).json({ message: "Server error" });
   }
 };

@@ -1,6 +1,6 @@
-const Table = require("../models/Table");
-const Restaurant = require("../models/Restaurant");
-const { generateQrDataUrl } = require("../utils/qrGenerator");
+const Table = require("../../models/Table");
+const Restaurant = require("../../models/Restaurant");
+const { generateQrDataUrl } = require("../../utils/qrGenerator");
 
 /**
  * GET QR for a table (Restaurant Admin only)

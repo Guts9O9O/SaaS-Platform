@@ -1,6 +1,6 @@
-import express from "express";
-import Restaurant from "../models/Restaurant.js";
-import Table from "../models/Table.js";
+const express = require("express");
+const Restaurant = require("../models/Restaurant");
+const Table = require("../models/Table");
 
 const router = express.Router();
 
@@ -17,7 +17,7 @@ router.get(
 
       const restaurant = await Restaurant.findOne({
         slug,
-        active: true,
+        isActive: true,
       });
 
       if (!restaurant) {
@@ -29,7 +29,7 @@ router.get(
       const table = await Table.findOne({
         restaurantId: restaurant._id,
         tableCode,
-        active: true,
+        isActive: true,
       });
 
       if (!table) {
@@ -46,7 +46,6 @@ router.get(
         },
         table: {
           _id: table._id,
-          name: table.name,
           tableCode: table.tableCode,
         },
       });
@@ -59,4 +58,4 @@ router.get(
   }
 );
 
-export default router;
+module.exports = router;

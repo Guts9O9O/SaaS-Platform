@@ -1,26 +1,80 @@
-const mongoose = require('mongoose');
+const mongoose = require("mongoose");
 
-const OrderItemSchema = new mongoose.Schema({
-  menuItemId: { type: mongoose.Schema.Types.ObjectId, ref: 'MenuItem', required: true },
-  name: String,
-  priceAtTime: Number,
-  quantity: Number,
-  variants: Object,
-  addons: [Object],
-  notes: String
-});
+const OrderSchema = new mongoose.Schema(
+  {
+    restaurantId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Restaurant",
+      required: true,
+      index: true,
+    },
 
-const OrderSchema = new mongoose.Schema({
-  restaurantId: { type: mongoose.Schema.Types.ObjectId, ref: 'Restaurant', required: true },
-  tableId: { type: mongoose.Schema.Types.ObjectId, ref: 'Table' },
-  customerId: { type: mongoose.Schema.Types.ObjectId, ref: 'Customer' },
-  orderItems: [OrderItemSchema],
-  totalAmount: Number,
-  status: { type: String, enum: ['PENDING','ACCEPTED','IN_KITCHEN','READY',"PREPARING",'SERVED','COMPLETED','CANCELLED'], default: 'ACCEPTED' },
-  notes: String,
-  createdAt: { type: Date, default: Date.now },
-  updatedAt: Date,
-  cancelReason: String
-});
+    tableId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Table",
+      required: true,
+      index: true,
+    },
 
-module.exports = mongoose.model('Order', OrderSchema);
+    // 🔑 CUSTOMER SESSION (instead of customerId)
+    sessionId: {
+      type: String,
+      required: true,
+      index: true,
+    },
+
+    items: [
+      {
+        itemId: {
+          type: mongoose.Schema.Types.ObjectId,
+          ref: "MenuItem",
+          required: true,
+        },
+        name: String,
+        price: Number,
+        quantity: { type: Number, default: 1 },
+      },
+    ],
+
+    totalAmount: {
+      type: Number,
+      required: true,
+    },
+
+    status: {
+      type: String,
+      enum: [
+        "PENDING",
+        "ACCEPTED",
+        "IN_KITCHEN",
+        "READY",
+        "SERVED",
+        "COMPLETED",
+        "CANCELLED",
+        "REJECTED"
+      ],
+      default: "PENDING",
+      index: true,
+    },
+
+    cancelReason: String,
+    notes: String,
+
+        // ✅ BILLING FLAGS
+    billed: {
+      type: Boolean,
+      default: false,
+      index: true,
+    },
+
+    billId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Bill", // (Bill model will be added in next change set)
+      default: null,
+      index: true,
+    },
+  },
+  { timestamps: true }
+);
+
+module.exports = mongoose.model("Order", OrderSchema);

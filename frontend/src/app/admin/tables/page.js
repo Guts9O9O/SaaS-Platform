@@ -28,7 +28,7 @@ export default function AdminTablesPage() {
     if (!token) return router.push("/admin/login");
 
     try {
-      const res = await fetch("http://localhost:4000/api/admin/tables", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/tables`, {
         headers: { Authorization: `Bearer ${token}` },
       });
       if (!res.ok) throw new Error();
@@ -52,7 +52,7 @@ export default function AdminTablesPage() {
     const token = localStorage.getItem("adminToken");
 
     try {
-      const res = await fetch("http://localhost:4000/api/admin/tables", {
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/tables`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
@@ -77,14 +77,14 @@ export default function AdminTablesPage() {
     const token = localStorage.getItem("adminToken");
 
     await fetch(
-      `http://localhost:4000/api/admin/tables/${table._id}/status`,
+      `${process.env.NEXT_PUBLIC_API_URL}/api/admin/tables/${table._id}/status`,
       {
         method: "PATCH",
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${token}`,
         },
-        body: JSON.stringify({ active: !table.active }),
+        body: JSON.stringify({ isActive: !table.isActive }),
       }
     );
 
@@ -99,7 +99,7 @@ export default function AdminTablesPage() {
 
     const token = localStorage.getItem("adminToken");
     const res = await fetch(
-      `http://localhost:4000/api/admin/tables/${table._id}/qr`,
+      `${process.env.NEXT_PUBLIC_API_URL}/api/admin/tables/${table._id}/qr`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
 

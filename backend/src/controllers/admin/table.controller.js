@@ -1,4 +1,4 @@
-const Table = require("../models/Table");
+const Table = require("../../models/Table");
 
 /* ---------------- CREATE TABLE ---------------- */
 exports.createTable = async (req, res) => {
@@ -16,8 +16,8 @@ exports.createTable = async (req, res) => {
 
     const table = await Table.create({
       restaurantId,
-      tableCode: tableCode.trim(),
-      active: true,
+      tableCode: tableCode.trim().toUpperCase(),
+      isActive: true,
     });
 
     return res.status(201).json(table);
@@ -54,7 +54,7 @@ exports.getTables = async (req, res) => {
 exports.updateTableStatus = async (req, res) => {
   try {
     const { role, restaurantId } = req.admin;
-    const { active } = req.body;
+    const { isActive } = req.body;
 
     if (role !== "RESTAURANT_ADMIN") {
       return res.status(403).json({ message: "Forbidden" });
@@ -62,7 +62,7 @@ exports.updateTableStatus = async (req, res) => {
 
     const table = await Table.findOneAndUpdate(
       { _id: req.params.id, restaurantId },
-      { active },
+      { isActive },
       { new: true }
     );
 

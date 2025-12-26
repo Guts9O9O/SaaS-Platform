@@ -1,7 +1,7 @@
 const express = require("express");
 const router = express.Router();
-const authAdmin = require("../middleware/authAdmin");
-const { getTableQr } = require("../controllers/adminQrController");
+const authAdmin = require("../../middleware/authAdmin");
+const { getTableQr } = require("../../controllers/admin/qr.controller");
 
 router.use(authAdmin);
 

@@ -14,7 +14,7 @@ const TableSchema = new mongoose.Schema(
       required: true,
     },
 
-    active: {
+    isActive: {
       type: Boolean,
       default: true,
     },

@@ -1,10 +1,10 @@
 // backend/src/routes/adminMenuRoutes.js
 const express = require('express');
 const router = express.Router();
-const MenuCategory = require('../models/MenuCategory');
-const MenuItem = require('../models/MenuItem');
-const Restaurant = require('../models/Restaurant');
-const adminAuth = require('../middleware/authAdmin');
+const MenuCategory = require('../../models/MenuCategory');
+const MenuItem = require('../../models/MenuItem');
+const Restaurant = require('../../models/Restaurant');
+const adminAuth = require('../../middleware/authAdmin');
 
 /**
  * Helper: resolve restaurantId from req.user or body (SUPER_ADMIN may pass restaurantId)
@@ -25,14 +25,14 @@ router.post('/categories', adminAuth, async (req, res) => {
     const restaurantId = resolveRestaurantId(req);
     if (!restaurantId) return res.status(400).json({ message: 'restaurantId required for category creation' });
 
-    const { name, position = 0, isActive = true } = req.body;
+    const { name, order = 0, isActive = true } = req.body;
     if (!name) return res.status(400).json({ message: 'Category name is required' });
 
     // verify restaurant exists and is active
     const rest = await Restaurant.findById(restaurantId);
     if (!rest) return res.status(404).json({ message: 'Restaurant not found' });
 
-    const category = await MenuCategory.create({ restaurantId, name, position, isActive });
+    const category = await MenuCategory.create({ restaurantId, name, order, isActive });
     return res.json({ success: true, category });
   } catch (err) {
     console.error('Create category error:', err);
@@ -47,7 +47,7 @@ router.get('/categories', adminAuth, async (req, res) => {
     const restaurantId = resolveRestaurantId(req);
     if (!restaurantId) return res.status(400).json({ message: 'restaurantId required' });
 
-    const categories = await MenuCategory.find({ restaurantId }).sort({ position: 1, name: 1 });
+    const categories = await MenuCategory.find({ restaurantId }).sort({ order: 1, name: 1 });
     return res.json({ success: true, categories });
   } catch (err) {
     console.error('List categories error:', err);
@@ -64,7 +64,7 @@ router.put('/categories/:id', adminAuth, async (req, res) => {
     if (!restaurantId) return res.status(400).json({ message: 'restaurantId required' });
 
     const update = {};
-    ['name', 'position', 'isActive'].forEach(k => {
+    ['name', 'order', 'isActive'].forEach(k => {
       if (req.body[k] !== undefined) update[k] = req.body[k];
     });
 

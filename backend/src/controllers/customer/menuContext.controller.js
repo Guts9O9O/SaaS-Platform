@@ -1,5 +1,5 @@
-const Restaurant = require("../models/Restaurant");
-const Table = require("../models/Table");
+const Restaurant = require("../../models/Restaurant");
+const Table = require("../../models/Table");
 
 exports.getMenuContext = async (req, res) => {
   try {
@@ -11,7 +11,7 @@ exports.getMenuContext = async (req, res) => {
 
     const restaurant = await Restaurant.findOne({
       slug: restaurantSlug,
-      active: true,
+      isActive: true,
     });
 
     if (!restaurant) {
@@ -21,7 +21,7 @@ exports.getMenuContext = async (req, res) => {
     const table = await Table.findOne({
       restaurantId: restaurant._id,
       tableCode,
-      active: true,
+      isActive: true,
     });
 
     if (!table) {

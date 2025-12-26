@@ -35,7 +35,7 @@ export default function AdminRestaurantsPage() {
       return;
     }
 
-    fetch("http://localhost:4000/api/admin/restaurants", {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/restaurants`, {
       headers: {
         Authorization: `Bearer ${token}`,
       },
@@ -102,14 +102,14 @@ export default function AdminRestaurantsPage() {
                       const token = localStorage.getItem("adminToken");
 
                       await fetch(
-                        `http://localhost:4000/api/admin/restaurants/${r._id}/status`,
+                        `${process.env.NEXT_PUBLIC_API_URL}/api/admin/restaurants/${r._id}/status`,
                         {
                           method: "PATCH",
                           headers: {
                             "Content-Type": "application/json",
                             Authorization: `Bearer ${token}`,
                           },
-                          body: JSON.stringify({ active: !r.active }),
+                          body: JSON.stringify({ isActive: !r.isActive }),
                         }
                       );
 
@@ -170,7 +170,7 @@ export default function AdminRestaurantsPage() {
                   });
 
                   await fetch(
-                    "http://localhost:4000/api/admin/restaurants",
+                    `${process.env.NEXT_PUBLIC_API_URL}/api/admin/restaurants`,
                     {
                       method: "POST",
                       headers: {

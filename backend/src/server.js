@@ -21,17 +21,21 @@ app.use(cookieParser());
 
 // routes (existing)
 app.use('/api/otp', require('./routes/otpRoutes'));
+app.use("/api/menu", require("./routes/customer/menuPublic.routes"));
+app.use("/api/menu-context", require("./routes/customer/menuContext.routes"));
 app.use("/api/menu", require("./routes/menuRoutes"));  
-app.use("/api/menu-context", require("./routes/menuContextRoutes"));
-app.use("/api/menu", require("./routes/customers/menuPublic.routes"));
-app.use('/api/orders', require('./routes/orderRoutes'));
-app.use('/api/admin', require('./routes/adminAuth'));
-app.use('/api/admin/menu', require('./routes/adminMenuRoutes'));
-app.use('/api/admin/tables', require('./routes/adminTableRoutes'));
-app.use('/api/admin/orders', require('./routes/adminOrderRoutes'));
-app.use("/api/admin/restaurants", require("./routes/adminRestaurantRoutes"));
-app.use("/api/admin", require("./routes/adminQrRoutes"));
 
+app.use('/api/admin/auth', require('./routes/admin/auth.routes'));
+app.use('/api/admin/menu', require('./routes/admin/menu.routes'));
+app.use('/api/admin/tables', require('./routes/admin/table.routes'));
+app.use('/api/admin/orders', require('./routes/admin/order.routes'));
+app.use("/api/admin/restaurants", require("./routes/admin/restaurant.routes"));
+app.use("/api/admin/qr", require("./routes/admin/qr.routes"));
+app.use("/api/admin/menu-categories", require("./routes/admin/menuCategory.routes"));
+app.use("/api/admin/menu-items", require("./routes/admin/menuItem.routes"));
+app.use("/api/customer/session", require("./routes/customer/session.routes"));
+app.use("/api/customer/orders", require("./routes/customer/order.routes"));
+app.use("/api/admin/billing", require("./routes/admin/billing.routes"));
 
 // simple health
 app.get('/', (req, res) => res.send('QR Menu Backend is running (with sockets)'));
@@ -68,14 +72,6 @@ io.on('connection', (socket) => {
       socket.join(room);
       console.log(`Socket ${socket.id} joined ${room}`);
     }
-  });
-
-  // customer joins their order room
-  socket.on('join_order_room', ({ orderId }) => {
-    if (!orderId) return;
-    const room = `order_${orderId}`;
-    socket.join(room);
-    console.log(`Socket ${socket.id} joined ${room}`);
   });
 
   socket.on('leave_admin_room', ({ restaurantId }) => {

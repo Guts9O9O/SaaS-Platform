@@ -32,8 +32,7 @@ export default function Cart({ cartItems, onIncrease, onDecrease, orderPlaced })
 
       <ul>
         {cartItems.map((item) => (
-          <li
-            key={item._id}
+          <li key={String(item.itemId)}
             style={{
               marginBottom: "10px",
               display: "flex",
@@ -50,7 +49,7 @@ export default function Cart({ cartItems, onIncrease, onDecrease, orderPlaced })
             <div style={{ display: "flex", alignItems: "center" }}>
               <button
                 disabled={orderPlaced}
-                onClick={() => handleDecrease(item._id)}
+                onClick={() => handleDecrease(item.itemId)}
                 style={{
                   padding: "4px 10px",
                   borderRadius: "50%",
@@ -72,7 +71,7 @@ export default function Cart({ cartItems, onIncrease, onDecrease, orderPlaced })
                   textAlign: "center",
                   fontWeight: "600",
                   transform:
-                    animatingItemId === item._id
+                    animatingItemId === item.itemId
                       ? "scale(1.25)"
                       : "scale(1)",
                   transition: "transform 0.15s",
@@ -83,7 +82,7 @@ export default function Cart({ cartItems, onIncrease, onDecrease, orderPlaced })
 
               <button
                 disabled={orderPlaced}
-                onClick={() => handleIncrease(item._id)}
+                onClick={() => handleIncrease(item.itemId)}
                 style={{
                   padding: "4px 10px",
                   borderRadius: "50%",

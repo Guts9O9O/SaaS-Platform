@@ -49,7 +49,7 @@ const RestaurantSchema = new mongoose.Schema(
     },
 
     /* -------- SYSTEM -------- */
-    active: {
+    isActive: {
       type: Boolean,
       default: true,
     },

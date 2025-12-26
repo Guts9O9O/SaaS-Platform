@@ -12,26 +12,39 @@ export default function useMenuContext({ restaurantSlug, tableCode }) {
 
     let cancelled = false;
 
-    const fetchContext = async () => {
+    const startSession = async () => {
       try {
         const res = await fetch(
-          `http://localhost:4000/api/menu-context/context?restaurantSlug=${restaurantSlug}&tableCode=${tableCode}`
+          `${process.env.NEXT_PUBLIC_API_URL}/api/customer/session/start`,
+          {
+            method: "POST",
+            credentials: "include", // 🔑 REQUIRED
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ restaurantSlug, tableCode }),
+          }
         );
 
         if (!res.ok) {
-          throw new Error("Invalid context");
+          throw new Error("Failed to start session");
         }
 
         const data = await res.json();
-        if (!cancelled) setContext(data);
+
+        if (!cancelled) {
+          setContext(data); // { restaurant, table }
+        }
       } catch (err) {
-        if (!cancelled) setError("Invalid or inactive table QR");
+        if (!cancelled) {
+          setError("Invalid or inactive table QR");
+        }
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          setLoading(false);
+        }
       }
     };
 
-    fetchContext();
+    startSession();
 
     return () => {
       cancelled = true;

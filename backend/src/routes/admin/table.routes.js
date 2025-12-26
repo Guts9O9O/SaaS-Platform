@@ -1,12 +1,12 @@
 const express = require("express");
 const router = express.Router();
-const authAdmin = require("../middleware/authAdmin");
+const authAdmin = require("../../middleware/authAdmin");
 
 const {
   createTable,
   getTables,
   updateTableStatus,
-} = require("../controllers/adminTableController");
+} = require("../../controllers/admin/table.controller");
 
 router.use(authAdmin);
 

@@ -12,7 +12,7 @@ const UserSchema = new mongoose.Schema({
   restaurantId: {
     type: mongoose.Schema.Types.ObjectId,
     ref: 'Restaurant',
-    required: true, // null for SUPER_ADMIN
+    default: null
   },
   createdAt: { type: Date, default: Date.now }
 });

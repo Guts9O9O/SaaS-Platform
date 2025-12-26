@@ -1,6 +1,6 @@
 const express = require("express");
 const router = express.Router();
-const { getMenuContext } = require("../controllers/menuContextController");
+const { getMenuContext } = require("../../controllers/customer/menuContext.controller");
 
 router.get("/context", getMenuContext);
 

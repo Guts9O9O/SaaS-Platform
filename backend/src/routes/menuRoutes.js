@@ -8,10 +8,10 @@ const MenuItem = require('../models/MenuItem');
 router.get('/:slug', async (req, res) => {
   try {
     const { slug } = req.params;
-    const restaurant = await Restaurant.findOne({ slug, active: true });
+    const restaurant = await Restaurant.findOne({ slug, isActive: true });
     if (!restaurant) return res.status(404).json({ message: 'Restaurant not found or inactive' });
 
-    const categories = await MenuCategory.find({ restaurantId: restaurant._id, isActive: true }).sort({ position: 1 });
+    const categories = await MenuCategory.find({ restaurantId: restaurant._id, isActive: true }).sort({ order: 1 });
     const items = await MenuItem.find({ restaurantId: restaurant._id, isAvailable: true });
 
     // group items by category for client convenience
