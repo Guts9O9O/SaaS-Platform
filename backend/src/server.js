@@ -36,6 +36,7 @@ app.use("/api/admin/menu-items", require("./routes/admin/menuItem.routes"));
 app.use("/api/customer/session", require("./routes/customer/session.routes"));
 app.use("/api/customer/orders", require("./routes/customer/order.routes"));
 app.use("/api/admin/billing", require("./routes/admin/billing.routes"));
+app.use("/api/admin/revenue", require("./routes/admin/revenue.routes"));
 
 // simple health
 app.get('/', (req, res) => res.send('QR Menu Backend is running (with sockets)'));
@@ -84,6 +85,22 @@ io.on('connection', (socket) => {
 
   socket.on('disconnect', () => {
     console.log('Socket disconnected:', socket.id);
+  });
+
+  socket.on("join_customer_session", ({ sessionId }) => {
+    if (sessionId) {
+      const room = `session_${sessionId}`;
+      socket.join(room);
+      console.log(`Socket ${socket.id} joined ${room}`);
+    }
+  });
+
+  socket.on("leave_customer_session", ({ sessionId }) => {
+    if (sessionId) {
+      const room = `session_${sessionId}`;
+      socket.leave(room);
+      console.log(`Socket ${socket.id} left ${room}`);
+    }
   });
 });
 

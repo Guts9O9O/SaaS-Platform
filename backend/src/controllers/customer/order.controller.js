@@ -62,6 +62,13 @@ exports.placeOrder = async (req, res) => {
         order,
       });
     }
+    // 🔔 notify customer (same session)
+    if (io) {
+      io.to(`session_${sessionId}`).emit("customer_orders_updated", {
+        type: "NEW_ORDER",
+        orderId: order._id.toString(),
+      });
+    }
 
     res.status(201).json(order);
   } catch (err) {

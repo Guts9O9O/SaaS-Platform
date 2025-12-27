@@ -58,6 +58,7 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
 
   /* Socket */
   const socketRef = useRef(null);
+  const joinedOrdersRef = useRef(new Set());
 
   /* ------------------ LOAD MENU (C1.2) ------------------ */
   useEffect(() => {
@@ -127,6 +128,42 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
     setLoadingOrders(true);
     refreshTableOrders().finally(() => setLoadingOrders(false));
   }, [activeTab, restaurantSlug, tableCode]);
+
+  useEffect(() => {
+  if (activeTab !== "orders") return;
+
+  // Create socket once (when Orders tab opens)
+  if (!socketRef.current) {
+    socketRef.current = io(process.env.NEXT_PUBLIC_API_URL, {
+      withCredentials: true,
+      transports: ["websocket", "polling"],
+    });
+
+    // listen once
+    socketRef.current.on("order_status", ({ order }) => {
+      if (!order?._id) return;
+      setTableOrders((prev) =>
+        prev.map((o) => (o._id === order._id ? { ...o, status: order.status } : o))
+      );
+    });
+  }
+
+  // Join rooms for all currently loaded orders
+  const socket = socketRef.current;
+  for (const o of tableOrders) {
+    const id = o?._id;
+    if (!id) continue;
+    if (joinedOrdersRef.current.has(id)) continue;
+
+    socket.emit("join_order_room", { orderId: id });
+    joinedOrdersRef.current.add(id);
+  }
+
+  return () => {
+    // optional cleanup: keep socket connected (faster) while user stays on page
+    // If you want disconnect on tab switch, tell me — we’ll do it safely.
+  };
+}, [activeTab, tableOrders]);
 
   /* ------------------ HELPERS ------------------ */
   function getItemQty(itemId) {

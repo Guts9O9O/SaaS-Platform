@@ -3,7 +3,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 
-const API_BASE = process.env.NEXT_PUBLIC_API_URL; // e.g. http://localhost:4000
+import BillingModal from "../../components/BillingModal";
+import RevenueSummaryPanel from "../../components/RevenueSummaryPanel";
+import BillHistoryPanel from "../../components/BillHistoryPanel";
+
+const API_BASE = process.env.NEXT_PUBLIC_API_URL;
 
 function getToken() {
   if (typeof window === "undefined") return null;
@@ -15,7 +19,6 @@ function safeDecodeJwtPayload(token) {
     const parts = token.split(".");
     if (parts.length < 2) return null;
     const payload = parts[1];
-    // base64url -> base64
     const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
     const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
     const json = atob(padded);
@@ -38,16 +41,12 @@ async function apiFetch(path, opts = {}) {
   });
 
   const data = await res.json().catch(() => ({}));
-  if (!res.ok) {
-    const msg = data?.message || `Request failed: ${res.status}`;
-    throw new Error(msg);
-  }
+  if (!res.ok) throw new Error(data?.message || `Request failed: ${res.status}`);
   return data;
 }
 
 function formatMoney(n) {
-  const x = Number(n || 0);
-  return x.toFixed(2);
+  return Number(n || 0).toFixed(2);
 }
 
 const STATUS_META = {
@@ -84,10 +83,37 @@ export default function LiveOrdersPage() {
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [search, setSearch] = useState("");
+  const [showBillHistory, setShowBillHistory] = useState(false);
 
-  // used to avoid spamming fetch on bursty events
+  // ✅ This fixes your crash when billing_closed tries to call setRevenueTick
+  const [revenueTick, setRevenueTick] = useState(0);
+
+  const [billingOpen, setBillingOpen] = useState(false);
+  const [billingTable, setBillingTable] = useState(null);
+
   const refreshTimerRef = useRef(null);
   const socketRef = useRef(null);
+
+  const styles = {
+    cardStyle: {
+      background: "#111",
+      borderRadius: 12,
+      padding: 14,
+      border: "1px solid #222",
+    },
+    btnStyle: {
+      background: "#1a1a1a",
+      color: "#fff",
+      border: "1px solid #2a2a2a",
+      borderRadius: 8,
+      padding: "6px 10px",
+      cursor: "pointer",
+    },
+    smallMuted: {
+      fontSize: 12,
+      color: "#9aa0a6",
+    },
+  };
 
   const fetchLive = async () => {
     setErr("");
@@ -123,25 +149,23 @@ export default function LiveOrdersPage() {
 
     return () => {
       mounted = false;
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
     };
   }, []);
 
-  // ✅ Socket.IO replaces polling
+  // ✅ Socket.IO
   useEffect(() => {
     const token = getToken();
     const payload = token ? safeDecodeJwtPayload(token) : null;
     const restaurantId = payload?.restaurantId || null;
 
-    // If staff/admin has restaurantId, join room. If SUPER_ADMIN has null, we still connect
-    // so we can extend later (e.g. choosing a restaurant context).
-    const socketUrl = API_BASE;
-
-    if (!socketUrl) {
+    if (!API_BASE) {
       console.warn("NEXT_PUBLIC_API_URL is missing; Socket.IO disabled.");
       return;
     }
 
-    const socket = io(socketUrl, {
+    const socket = io(API_BASE, {
       transports: ["websocket", "polling"],
       withCredentials: true,
       autoConnect: true,
@@ -150,9 +174,7 @@ export default function LiveOrdersPage() {
     socketRef.current = socket;
 
     socket.on("connect", () => {
-      if (restaurantId) {
-        socket.emit("join_admin_room", { restaurantId });
-      }
+      if (restaurantId) socket.emit("join_admin_room", { restaurantId });
     });
 
     socket.on("order_updated", () => {
@@ -161,24 +183,22 @@ export default function LiveOrdersPage() {
 
     socket.on("billing_closed", () => {
       scheduleRefresh();
+      setRevenueTick((x) => x + 1);
+      <RevenueSummaryPanel styles={styles} refreshKey={revenueTick} />
     });
 
     socket.on("connect_error", (e) => {
       console.error("Socket connect_error:", e?.message || e);
-      // do not hard-fail UI; live page still works with manual refresh/actions
     });
 
     return () => {
       try {
-        if (restaurantId) {
-          socket.emit("leave_admin_room", { restaurantId });
-        }
+        if (restaurantId) socket.emit("leave_admin_room", { restaurantId });
         socket.off("order_updated");
         socket.off("billing_closed");
         socket.disconnect();
       } catch {}
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredTables = useMemo(() => {
@@ -189,7 +209,6 @@ export default function LiveOrdersPage() {
       const hay = `${t.tableCode || ""}`.toLowerCase();
       if (hay.includes(q)) return true;
 
-      // also search within items
       const orders = Array.isArray(t.orders) ? t.orders : [];
       return orders.some((o) =>
         (o?.orderItems || o?.items || []).some((it) =>
@@ -206,20 +225,14 @@ export default function LiveOrdersPage() {
         method: "PATCH",
         body: JSON.stringify({ status }),
       });
-
-      // We rely on socket event to refresh, but do a safe local refresh too
       scheduleRefresh();
     } catch (e) {
       setErr(e.message || "Failed to update status");
     }
   };
 
-  const containerStyle = {
-    minHeight: "100vh",
-    background: "#0b0b0b",
-    color: "#eaeaea",
-    padding: 16,
-  };
+  // styles
+  const containerStyle = { minHeight: "100vh", background: "#0b0b0b", color: "#eaeaea", padding: 16 };
 
   const cardStyle = {
     background: "#121212",
@@ -239,26 +252,22 @@ export default function LiveOrdersPage() {
     fontSize: 13,
   };
 
-  const btnDanger = {
-    ...btnStyle,
-    background: "#2a0707",
-    border: "1px solid #3a0f0f",
-    color: "#ffb3b3",
-  };
-
-  const btnOk = {
-    ...btnStyle,
-    background: "#062a14",
-    border: "1px solid #0d3a1e",
-    color: "#b7ffd0",
-  };
-
+  const btnDanger = { ...btnStyle, background: "#2a0707", border: "1px solid #3a0f0f", color: "#ffb3b3" };
+  const btnOk = { ...btnStyle, background: "#062a14", border: "1px solid #0d3a1e", color: "#b7ffd0" };
   const smallMuted = { color: "#a5a5a5", fontSize: 12 };
 
   return (
     <div style={containerStyle}>
+      {showBillHistory && (
+        <BillHistoryPanel tables={tables} styles={{ cardStyle, btnStyle, btnOk, btnDanger, smallMuted }} />
+      )}
+
       <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 14 }}>
         <h2 style={{ margin: 0, fontSize: 20 }}>Live Orders (By Table)</h2>
+
+        <button style={btnStyle} onClick={() => setShowBillHistory((v) => !v)}>
+          {showBillHistory ? "Hide Bill History" : "Show Bill History"}
+        </button>
 
         <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }}>
           <input
@@ -275,6 +284,7 @@ export default function LiveOrdersPage() {
               outline: "none",
             }}
           />
+
           <button
             style={btnStyle}
             onClick={async () => {
@@ -294,15 +304,7 @@ export default function LiveOrdersPage() {
       </div>
 
       {err ? (
-        <div
-          style={{
-            ...cardStyle,
-            borderColor: "#3a0f0f",
-            background: "#160707",
-            color: "#ffb3b3",
-            marginBottom: 12,
-          }}
-        >
+        <div style={{ ...cardStyle, borderColor: "#3a0f0f", background: "#160707", color: "#ffb3b3", marginBottom: 12 }}>
           {err}
         </div>
       ) : null}
@@ -326,9 +328,20 @@ export default function LiveOrdersPage() {
                     <div style={smallMuted}>
                       Open Total: <b style={{ color: "#fff" }}>{formatMoney(t.totalOpenAmount)}</b>
                     </div>
+
                     <div style={smallMuted}>
                       Orders: <b style={{ color: "#fff" }}>{orders.length}</b>
                     </div>
+
+                    <button
+                      style={btnStyle}
+                      onClick={() => {
+                        setBillingTable({ tableId: t.tableId, tableCode: t.tableCode });
+                        setBillingOpen(true);
+                      }}
+                    >
+                      Billing
+                    </button>
                   </div>
                 </div>
 
@@ -348,10 +361,10 @@ export default function LiveOrdersPage() {
                         }}
                       >
                         <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <div style={{ fontSize: 14, fontWeight: 700 }}>
-                            Order #{String(o._id).slice(-6)}
-                          </div>
+                          <div style={{ fontSize: 14, fontWeight: 700 }}>Order #{String(o._id).slice(-6)}</div>
+
                           <StatusPill status={o.status} />
+
                           <div style={{ marginLeft: "auto", ...smallMuted }}>
                             Total: <b style={{ color: "#fff" }}>{formatMoney(o.totalAmount)}</b>
                           </div>
@@ -361,8 +374,7 @@ export default function LiveOrdersPage() {
                           {items.map((it, idx) => (
                             <div key={idx} style={{ display: "flex", gap: 10, ...smallMuted }}>
                               <div style={{ flex: 1, color: "#eaeaea" }}>
-                                {it?.name}{" "}
-                                <span style={{ color: "#a5a5a5" }}>x{it?.quantity || 0}</span>
+                                {it?.name} <span style={{ color: "#a5a5a5" }}>x{it?.quantity || 0}</span>
                               </div>
                               <div>{formatMoney(it?.price)}</div>
                             </div>
@@ -380,9 +392,7 @@ export default function LiveOrdersPage() {
                               </button>
                             </>
                           ) : (
-                            <div style={smallMuted}>
-                              Use next lifecycle buttons in next step (IN_KITCHEN → READY → SERVED)
-                            </div>
+                            <div style={smallMuted}>Use next lifecycle buttons in next step (IN_KITCHEN → READY → SERVED)</div>
                           )}
                         </div>
                       </div>
@@ -394,6 +404,20 @@ export default function LiveOrdersPage() {
           })}
         </div>
       )}
+
+      <BillingModal
+        open={billingOpen}
+        onClose={() => setBillingOpen(false)}
+        tableId={billingTable?.tableId}
+        tableCode={billingTable?.tableCode}
+        onClosed={() => scheduleRefresh()}
+        styles={{ cardStyle, btnStyle, btnOk, btnDanger, smallMuted }}
+      />
+
+      <RevenueSummaryPanel
+        styles={{ cardStyle, btnStyle, smallMuted }}
+        refreshKey={revenueTick}
+      />
     </div>
   );
 }

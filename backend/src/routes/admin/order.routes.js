@@ -277,7 +277,7 @@ router.patch('/:id/status', adminAuth, async (req, res) => {
     const io = req.app.get('io');
     if (io) {
       const restaurantRoom = `restaurant_${order.restaurantId.toString()}`;
-      
+
       io.to(restaurantRoom).emit('order_updated', {
         orderId: order._id.toString(),
         order,
@@ -288,6 +288,16 @@ router.patch('/:id/status', adminAuth, async (req, res) => {
         status: order.status,
         order,
       });
+
+            // 🔔 notify customer who owns this session (so My Orders refreshes)
+      if (order.sessionId) {
+        io.to(`session_${order.sessionId}`).emit("customer_orders_updated", {
+          type: "STATUS_CHANGED",
+          orderId: order._id.toString(),
+          status: order.status,
+        });
+      }
+
     }
 
     return res.json({ success: true, order });

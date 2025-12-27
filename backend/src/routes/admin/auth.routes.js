@@ -52,7 +52,16 @@ router.post('/login', async (req, res) => {
     // optionally set cookie
     res.cookie('token', token, { httpOnly: true, sameSite: 'lax' });
 
-    return res.json({ success: true, token, user: { id: user._id, email: user.email, role: user.role } });
+    return res.json({
+      success: true,
+      token,
+      user: {
+        id: user._id,
+        email: user.email,
+        role: user.role,
+        restaurantId: user.restaurantId || null,
+      },
+    });
   } catch (err) {
     console.error('Admin login error:', err);
     return res.status(500).json({ message: 'Server error' });

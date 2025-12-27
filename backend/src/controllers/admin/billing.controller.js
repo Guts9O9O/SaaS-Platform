@@ -191,3 +191,83 @@ exports.getBillHistoryForTable = async (req, res) => {
     res.status(500).json({ message: "Server error" });
   }
 };
+
+/**
+ * GET RECENT BILLS (ALL TABLES)
+ * GET /api/admin/billing/recent?limit=20
+ */
+exports.getRecentBills = async (req, res) => {
+  try {
+    const { restaurantId } = req.admin;
+    const limit = Math.min(100, Math.max(1, parseInt(req.query.limit || "20", 10)));
+
+    const bills = await Bill.find({ restaurantId })
+      .sort({ closedAt: -1 })
+      .limit(limit)
+      .lean();
+
+    // attach tableCode
+    const tableIds = [...new Set(bills.map(b => String(b.tableId)).filter(Boolean))];
+    const tables = await Table.find({ _id: { $in: tableIds }, restaurantId })
+      .select("_id tableCode")
+      .lean();
+
+    const tableMap = new Map(tables.map(t => [String(t._id), t.tableCode]));
+
+    const enriched = bills.map(b => ({
+      ...b,
+      tableCode: tableMap.get(String(b.tableId)) || null,
+    }));
+
+    return res.json({ success: true, count: enriched.length, bills: enriched });
+  } catch (err) {
+    console.error("Get recent bills error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+/**
+ * GET BILL TABLE SUMMARY (ALL TABLES)
+ * GET /api/admin/billing/table-summary?limit=50
+ * - grouped by tableId, with totals + last closed time
+ */
+exports.getBillTableSummary = async (req, res) => {
+  try {
+    const { restaurantId } = req.admin;
+    const limit = Math.min(200, Math.max(1, parseInt(req.query.limit || "50", 10)));
+
+    const rows = await Bill.aggregate([
+      { $match: { restaurantId: require("mongoose").Types.ObjectId(restaurantId) } },
+      {
+        $group: {
+          _id: "$tableId",
+          billsCount: { $sum: 1 },
+          totalRevenue: { $sum: "$grandTotal" },
+          lastClosedAt: { $max: "$closedAt" },
+        },
+      },
+      { $sort: { lastClosedAt: -1 } },
+      { $limit: limit },
+    ]);
+
+    const tableIds = rows.map(r => r._id).filter(Boolean);
+    const tables = await Table.find({ _id: { $in: tableIds }, restaurantId })
+      .select("_id tableCode")
+      .lean();
+
+    const tableMap = new Map(tables.map(t => [String(t._id), t.tableCode]));
+
+    const summary = rows.map(r => ({
+      tableId: r._id,
+      tableCode: tableMap.get(String(r._id)) || null,
+      billsCount: r.billsCount,
+      totalRevenue: r.totalRevenue || 0,
+      lastClosedAt: r.lastClosedAt,
+    }));
+
+    return res.json({ success: true, count: summary.length, tables: summary });
+  } catch (err) {
+    console.error("Get bill table summary error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
