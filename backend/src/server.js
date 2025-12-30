@@ -24,6 +24,7 @@ app.use('/api/otp', require('./routes/otpRoutes'));
 app.use("/api/menu", require("./routes/customer/menuPublic.routes"));
 app.use("/api/menu-context", require("./routes/customer/menuContext.routes"));
 app.use("/api/menu", require("./routes/menuRoutes"));  
+app.use("/api/customer/auth", require("./routes/customer/auth.routes"));
 
 app.use('/api/admin/auth', require('./routes/admin/auth.routes'));
 app.use('/api/admin/menu', require('./routes/admin/menu.routes'));
@@ -37,6 +38,12 @@ app.use("/api/customer/session", require("./routes/customer/session.routes"));
 app.use("/api/customer/orders", require("./routes/customer/order.routes"));
 app.use("/api/admin/billing", require("./routes/admin/billing.routes"));
 app.use("/api/admin/revenue", require("./routes/admin/revenue.routes"));
+// customer bill/service requests
+app.use("/api/customer/requests", require("./routes/customer/serviceRequest.routes"));
+
+// admin bill/service requests
+app.use("/api/admin/requests", require("./routes/admin/serviceRequest.routes"));
+
 
 // simple health
 app.get('/', (req, res) => res.send('QR Menu Backend is running (with sockets)'));

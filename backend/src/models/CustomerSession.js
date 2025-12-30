@@ -8,7 +8,6 @@ const CustomerSessionSchema = new mongoose.Schema(
       required: true,
       index: true,
     },
-
     tableId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: "Table",
@@ -16,23 +15,36 @@ const CustomerSessionSchema = new mongoose.Schema(
       index: true,
     },
 
-    phone: {
+    // ✅ production-style opaque session id (cookie stores this, not Mongo _id)
+    sessionId: {
       type: String,
-      trim: true,
+      required: true,
+      unique: true,
+      index: true,
     },
 
-    isActive: {
-      type: Boolean,
-      default: true,
+    // later: link to global customer
+    customerId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "Customer",
+      index: true,
+      default: null,
     },
+
+    phone: { type: String, trim: true },
+
+    isActive: { type: Boolean, default: true },
 
     expiresAt: {
       type: Date,
       required: true,
-      index: { expires: 0 }, // TTL index
+      index: { expires: 0 }, // TTL
     },
   },
   { timestamps: true }
 );
 
-module.exports = mongoose.model("CustomerSession", CustomerSessionSchema);
+// ✅ prevent OverwriteModelError in dev
+module.exports =
+  mongoose.models.CustomerSession ||
+  mongoose.model("CustomerSession", CustomerSessionSchema);

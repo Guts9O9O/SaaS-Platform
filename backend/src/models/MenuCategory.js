@@ -34,4 +34,5 @@ MenuCategorySchema.index(
   { unique: true }
 );
 
-module.exports = mongoose.model("MenuCategory", MenuCategorySchema);
+module.exports = mongoose.models.MenuCategory||
+  mongoose.model("MenuCategory", MenuCategorySchema);

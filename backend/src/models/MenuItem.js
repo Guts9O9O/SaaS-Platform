@@ -64,4 +64,5 @@ MenuItemSchema.index(
   { unique: true }
 );
 
-module.exports = mongoose.model("MenuItem", MenuItemSchema);
+module.exports = mongoose.models.MenuItem||
+  mongoose.model("MenuItem", MenuItemSchema);

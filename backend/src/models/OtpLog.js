@@ -9,4 +9,5 @@ const OtpLogSchema = new mongoose.Schema({
   createdAt: { type: Date, default: Date.now }
 });
 
-module.exports = mongoose.model('OtpLog', OtpLogSchema);
+module.exports = mongoose.models.OtpLog||
+  mongoose.model('OtpLog', OtpLogSchema);

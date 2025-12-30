@@ -25,4 +25,5 @@ const TableSchema = new mongoose.Schema(
 /* Unique table per restaurant */
 TableSchema.index({ restaurantId: 1, tableCode: 1 }, { unique: true });
 
-module.exports = mongoose.model("Table", TableSchema);
+module.exports = mongoose.models.Table||
+  mongoose.model("Table", TableSchema);

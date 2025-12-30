@@ -85,153 +85,23 @@ export default function LiveOrdersPage() {
   const [search, setSearch] = useState("");
   const [showBillHistory, setShowBillHistory] = useState(false);
 
-  // ✅ This fixes your crash when billing_closed tries to call setRevenueTick
+  // ✅ revenue refresh trigger for RevenueSummaryPanel
   const [revenueTick, setRevenueTick] = useState(0);
 
   const [billingOpen, setBillingOpen] = useState(false);
   const [billingTable, setBillingTable] = useState(null);
 
+  // ✅ Bill requests state (NEW)
+  const [billRequests, setBillRequests] = useState([]);
+  const [billToast, setBillToast] = useState("");
+  const billToastTimerRef = useRef(null);
+
   const refreshTimerRef = useRef(null);
   const socketRef = useRef(null);
 
-  const styles = {
-    cardStyle: {
-      background: "#111",
-      borderRadius: 12,
-      padding: 14,
-      border: "1px solid #222",
-    },
-    btnStyle: {
-      background: "#1a1a1a",
-      color: "#fff",
-      border: "1px solid #2a2a2a",
-      borderRadius: 8,
-      padding: "6px 10px",
-      cursor: "pointer",
-    },
-    smallMuted: {
-      fontSize: 12,
-      color: "#9aa0a6",
-    },
-  };
+  // Keep restaurantId available for helpers/handlers
+  const restaurantIdRef = useRef(null);
 
-  const fetchLive = async () => {
-    setErr("");
-    const data = await apiFetch("/api/admin/orders/live-by-table");
-    setTables(Array.isArray(data?.tables) ? data.tables : []);
-  };
-
-  const scheduleRefresh = () => {
-    if (refreshTimerRef.current) return;
-    refreshTimerRef.current = setTimeout(async () => {
-      refreshTimerRef.current = null;
-      try {
-        await fetchLive();
-      } catch (e) {
-        setErr(e.message || "Failed to refresh live orders");
-      }
-    }, 250);
-  };
-
-  useEffect(() => {
-    let mounted = true;
-
-    (async () => {
-      try {
-        setLoading(true);
-        await fetchLive();
-      } catch (e) {
-        if (mounted) setErr(e.message || "Failed to load live orders");
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    })();
-
-    return () => {
-      mounted = false;
-      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = null;
-    };
-  }, []);
-
-  // ✅ Socket.IO
-  useEffect(() => {
-    const token = getToken();
-    const payload = token ? safeDecodeJwtPayload(token) : null;
-    const restaurantId = payload?.restaurantId || null;
-
-    if (!API_BASE) {
-      console.warn("NEXT_PUBLIC_API_URL is missing; Socket.IO disabled.");
-      return;
-    }
-
-    const socket = io(API_BASE, {
-      transports: ["websocket", "polling"],
-      withCredentials: true,
-      autoConnect: true,
-    });
-
-    socketRef.current = socket;
-
-    socket.on("connect", () => {
-      if (restaurantId) socket.emit("join_admin_room", { restaurantId });
-    });
-
-    socket.on("order_updated", () => {
-      scheduleRefresh();
-    });
-
-    socket.on("billing_closed", () => {
-      scheduleRefresh();
-      setRevenueTick((x) => x + 1);
-      <RevenueSummaryPanel styles={styles} refreshKey={revenueTick} />
-    });
-
-    socket.on("connect_error", (e) => {
-      console.error("Socket connect_error:", e?.message || e);
-    });
-
-    return () => {
-      try {
-        if (restaurantId) socket.emit("leave_admin_room", { restaurantId });
-        socket.off("order_updated");
-        socket.off("billing_closed");
-        socket.disconnect();
-      } catch {}
-    };
-  }, []);
-
-  const filteredTables = useMemo(() => {
-    const q = (search || "").trim().toLowerCase();
-    if (!q) return tables;
-
-    return tables.filter((t) => {
-      const hay = `${t.tableCode || ""}`.toLowerCase();
-      if (hay.includes(q)) return true;
-
-      const orders = Array.isArray(t.orders) ? t.orders : [];
-      return orders.some((o) =>
-        (o?.orderItems || o?.items || []).some((it) =>
-          `${it?.name || ""}`.toLowerCase().includes(q)
-        )
-      );
-    });
-  }, [tables, search]);
-
-  const updateOrderStatus = async (orderId, status) => {
-    try {
-      setErr("");
-      await apiFetch(`/api/admin/orders/${orderId}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      });
-      scheduleRefresh();
-    } catch (e) {
-      setErr(e.message || "Failed to update status");
-    }
-  };
-
-  // styles
   const containerStyle = { minHeight: "100vh", background: "#0b0b0b", color: "#eaeaea", padding: 16 };
 
   const cardStyle = {
@@ -255,6 +125,215 @@ export default function LiveOrdersPage() {
   const btnDanger = { ...btnStyle, background: "#2a0707", border: "1px solid #3a0f0f", color: "#ffb3b3" };
   const btnOk = { ...btnStyle, background: "#062a14", border: "1px solid #0d3a1e", color: "#b7ffd0" };
   const smallMuted = { color: "#a5a5a5", fontSize: 12 };
+
+  const fetchLive = async () => {
+    setErr("");
+    const data = await apiFetch("/api/admin/orders/live-by-table");
+    setTables(Array.isArray(data?.tables) ? data.tables : []);
+  };
+
+  // ✅ Fetch pending bill requests (NEW)
+  const fetchBillRequests = async (restaurantId) => {
+    if (!restaurantId) return;
+    try {
+      const data = await apiFetch(
+        `/api/admin/requests?status=OPEN&type=BILL&restaurantId=${restaurantId}`
+      );
+      setBillRequests(Array.isArray(data?.requests) ? data.requests : []);
+    } catch (e) {
+      console.error("Failed to fetch bill requests:", e?.message || e);
+      // Don't break page if this fails
+    }
+  };
+
+  const scheduleRefresh = () => {
+    if (refreshTimerRef.current) return;
+    refreshTimerRef.current = setTimeout(async () => {
+      refreshTimerRef.current = null;
+      try {
+        await fetchLive();
+      } catch (e) {
+        setErr(e.message || "Failed to refresh live orders");
+      }
+    }, 250);
+  };
+
+  const showBillToast = (msg) => {
+    setBillToast(msg);
+    if (billToastTimerRef.current) clearTimeout(billToastTimerRef.current);
+    billToastTimerRef.current = setTimeout(() => {
+      setBillToast("");
+      billToastTimerRef.current = null;
+    }, 3500);
+  };
+
+  // Initial load
+  useEffect(() => {
+    let mounted = true;
+
+    (async () => {
+      try {
+        setLoading(true);
+        await fetchLive();
+      } catch (e) {
+        if (mounted) setErr(e.message || "Failed to load live orders");
+      } finally {
+        if (mounted) setLoading(false);
+      }
+    })();
+
+    return () => {
+      mounted = false;
+      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
+      refreshTimerRef.current = null;
+
+      if (billToastTimerRef.current) clearTimeout(billToastTimerRef.current);
+      billToastTimerRef.current = null;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // ✅ Socket.IO wiring + Bill Request listeners (UPDATED)
+  useEffect(() => {
+    const token = getToken();
+    const payload = token ? safeDecodeJwtPayload(token) : null;
+    const restaurantId = payload?.restaurantId || null;
+    restaurantIdRef.current = restaurantId;
+
+    if (!API_BASE) {
+      console.warn("NEXT_PUBLIC_API_URL is missing; Socket.IO disabled.");
+      return;
+    }
+
+    const socket = io(API_BASE, {
+      transports: ["websocket", "polling"],
+      withCredentials: true,
+      autoConnect: true,
+    });
+
+    socketRef.current = socket;
+
+    const onConnect = () => {
+      if (restaurantId) {
+        socket.emit("join_admin_room", { restaurantId });
+        // Load any already-pending bill requests so admin sees them even if request happened earlier
+        fetchBillRequests(restaurantId);
+      }
+    };
+
+    const onOrderUpdated = () => {
+      scheduleRefresh();
+    };
+
+    const onBillingClosed = () => {
+      scheduleRefresh();
+      setRevenueTick((x) => x + 1);
+    };
+
+    // ✅ NEW: customer bill request event (matches your backend emit)
+    const onServiceRequest = ({ request }) => {
+      if (request?.type !== "BILL") return;
+
+      showBillToast(`Bill requested: Table ${request.tableCode}`);
+
+      // Put it into list immediately
+      setBillRequests((prev) => {
+        const exists = prev.some((r) => String(r._id) === String(request._id));
+        return exists ? prev : [request, ...prev];
+      });
+    };
+
+    // ✅ NEW: updates when admin ACK/CLOSE (or future updates)
+    const onServiceRequestUpdate = ({ request }) => {
+      if (!request?._id) return;
+      if (request?.type !== "BILL") return;
+
+      setBillRequests((prev) =>
+        prev
+          .map((r) => (String(r._id) === String(request._id) ? request : r))
+          .filter((r) => r.status === "OPEN" && r.type === "BILL")
+      );
+    };
+
+    const onConnectError = (e) => {
+      console.error("Socket connect_error:", e?.message || e);
+    };
+
+    socket.on("connect", onConnect);
+    socket.on("order_updated", onOrderUpdated);
+    socket.on("billing_closed", onBillingClosed);
+
+    // ✅ listen to the same event name you emit in backend controller:
+    // io.to(`restaurant_${restaurantId}`).emit("service_request", { request: created })
+    socket.on("service_request", onServiceRequest);
+    socket.on("service_request_update", onServiceRequestUpdate);
+
+    socket.on("connect_error", onConnectError);
+
+    return () => {
+      try {
+        if (restaurantId) socket.emit("leave_admin_room", { restaurantId });
+        socket.off("connect", onConnect);
+        socket.off("order_updated", onOrderUpdated);
+        socket.off("billing_closed", onBillingClosed);
+        socket.off("service_request", onServiceRequest);
+        socket.off("service_request_update", onServiceRequestUpdate);
+        socket.off("connect_error", onConnectError);
+        socket.disconnect();
+      } catch {}
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const filteredTables = useMemo(() => {
+    const q = (search || "").trim().toLowerCase();
+    if (!q) return tables;
+
+    return tables.filter((t) => {
+      const hay = `${t.tableCode || ""}`.toLowerCase();
+      if (hay.includes(q)) return true;
+
+      const orders = Array.isArray(t.orders) ? t.orders : [];
+      return orders.some((o) =>
+        (o?.orderItems || o?.items || []).some((it) => `${it?.name || ""}`.toLowerCase().includes(q))
+      );
+    });
+  }, [tables, search]);
+
+  const updateOrderStatus = async (orderId, status) => {
+    try {
+      setErr("");
+      await apiFetch(`/api/admin/orders/${orderId}/status`, {
+        method: "PATCH",
+        body: JSON.stringify({ status }),
+      });
+      scheduleRefresh();
+    } catch (e) {
+      setErr(e.message || "Failed to update status");
+    }
+  };
+
+  // ✅ Admin actions on bill requests (NEW)
+  const ackBillRequest = async (id) => {
+    try {
+      setErr("");
+      await apiFetch(`/api/admin/requests/${id}/ack`, { method: "PATCH" });
+      // refresh list (socket update may also remove it, but refresh is safest)
+      await fetchBillRequests(restaurantIdRef.current);
+    } catch (e) {
+      setErr(e.message || "Failed to acknowledge bill request");
+    }
+  };
+
+  const closeBillRequest = async (id) => {
+    try {
+      setErr("");
+      await apiFetch(`/api/admin/requests/${id}/close`, { method: "PATCH" });
+      await fetchBillRequests(restaurantIdRef.current);
+    } catch (e) {
+      setErr(e.message || "Failed to close bill request");
+    }
+  };
 
   return (
     <div style={containerStyle}>
@@ -291,6 +370,7 @@ export default function LiveOrdersPage() {
               try {
                 setLoading(true);
                 await fetchLive();
+                await fetchBillRequests(restaurantIdRef.current);
               } catch (e) {
                 setErr(e.message || "Refresh failed");
               } finally {
@@ -306,6 +386,77 @@ export default function LiveOrdersPage() {
       {err ? (
         <div style={{ ...cardStyle, borderColor: "#3a0f0f", background: "#160707", color: "#ffb3b3", marginBottom: 12 }}>
           {err}
+        </div>
+      ) : null}
+
+      {/* ✅ Toast banner (NEW) */}
+      {billToast ? (
+        <div
+          style={{
+            ...cardStyle,
+            borderColor: "#0d3a1e",
+            background: "#062a14",
+            color: "#b7ffd0",
+            marginBottom: 12,
+            fontWeight: 700,
+          }}
+        >
+          🧾 {billToast}
+        </div>
+      ) : null}
+
+      {/* ✅ Pending Bill Requests panel (NEW) */}
+      {billRequests.length > 0 ? (
+        <div style={{ ...cardStyle, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>
+              Bill Requests <span style={{ ...smallMuted }}>({billRequests.length} pending)</span>
+            </div>
+
+            <button
+              style={btnStyle}
+              onClick={() => fetchBillRequests(restaurantIdRef.current)}
+              title="Reload bill requests"
+            >
+              Reload
+            </button>
+          </div>
+
+          <div style={{ height: 10 }} />
+
+          <div style={{ display: "grid", gap: 10 }}>
+            {billRequests.slice(0, 10).map((r) => (
+              <div
+                key={r._id}
+                style={{
+                  border: "1px solid #262626",
+                  borderRadius: 12,
+                  padding: 12,
+                  background: "#0f0f0f",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>
+                    Table: <span style={{ color: "#fff" }}>{r.tableCode}</span>
+                  </div>
+                  <div style={smallMuted}>Requested: {new Date(r.createdAt).toLocaleString()}</div>
+                </div>
+
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button style={btnOk} onClick={() => ackBillRequest(r._id)}>
+                    Acknowledge
+                  </button>
+                  <button style={btnDanger} onClick={() => closeBillRequest(r._id)}>
+                    Close
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
         </div>
       ) : null}
 
@@ -414,10 +565,7 @@ export default function LiveOrdersPage() {
         styles={{ cardStyle, btnStyle, btnOk, btnDanger, smallMuted }}
       />
 
-      <RevenueSummaryPanel
-        styles={{ cardStyle, btnStyle, smallMuted }}
-        refreshKey={revenueTick}
-      />
+      <RevenueSummaryPanel styles={{ cardStyle, btnStyle, smallMuted }} refreshKey={revenueTick} />
     </div>
   );
 }
