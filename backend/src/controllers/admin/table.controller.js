@@ -76,3 +76,27 @@ exports.updateTableStatus = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+
+exports.deleteTable = async (req, res) => {
+  try {
+    const { role, restaurantId } = req.admin;
+
+    if (role !== "RESTAURANT_ADMIN") {
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    const table = await Table.findOneAndDelete({
+      _id: req.params.id,
+      restaurantId,
+    });
+
+    if (!table) {
+      return res.status(404).json({ message: "Table not found" });
+    }
+
+    return res.json({ message: "Table deleted" });
+  } catch (err) {
+    console.error("Delete table error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};

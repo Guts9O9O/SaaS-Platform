@@ -6,6 +6,7 @@ const {
   createTable,
   getTables,
   updateTableStatus,
+  deleteTable,
 } = require("../../controllers/admin/table.controller");
 
 router.use(authAdmin);
@@ -14,5 +15,6 @@ router.use(authAdmin);
 router.post("/", createTable);
 router.get("/", getTables);
 router.patch("/:id/status", updateTableStatus);
+router.delete("/:id", deleteTable);
 
 module.exports = router;

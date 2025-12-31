@@ -32,6 +32,7 @@ app.use('/api/admin/tables', require('./routes/admin/table.routes'));
 app.use('/api/admin/orders', require('./routes/admin/order.routes'));
 app.use("/api/admin/restaurants", require("./routes/admin/restaurant.routes"));
 app.use("/api/admin/qr", require("./routes/admin/qr.routes"));
+// ⚠️ LEGACY menu APIs (do not use in new UI; keep temporarily for backward compatibility)
 app.use("/api/admin/menu-categories", require("./routes/admin/menuCategory.routes"));
 app.use("/api/admin/menu-items", require("./routes/admin/menuItem.routes"));
 app.use("/api/customer/session", require("./routes/customer/session.routes"));

@@ -28,13 +28,19 @@ export default function AdminTablesPage() {
     if (!token) return router.push("/admin/login");
 
     try {
+      setError(null);
+      setLoading(true);
+
       const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/tables`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (!res.ok) throw new Error();
-      setTables(await res.json());
-    } catch {
-      setError("Failed to load tables");
+
+      const data = await res.json().catch(() => []);
+      if (!res.ok) throw new Error(data?.message || "Failed to load tables");
+
+      setTables(Array.isArray(data) ? data : []);
+    } catch (e) {
+      setError(e.message || "Failed to load tables");
     } finally {
       setLoading(false);
     }
@@ -42,6 +48,7 @@ export default function AdminTablesPage() {
 
   useEffect(() => {
     if (mounted) fetchTables();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted]);
 
   /* ---------------- CREATE TABLE ---------------- */
@@ -60,33 +67,48 @@ export default function AdminTablesPage() {
         },
         body: JSON.stringify({ tableCode }),
       });
-      if (!res.ok) throw new Error();
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Failed to create table");
 
       setTableCode("");
       setShowCreateModal(false);
       fetchTables();
-    } catch {
-      alert("Failed to create table");
+    } catch (e) {
+      alert(e.message || "Failed to create table");
     } finally {
       setCreating(false);
     }
   };
+  /* ---------------- DELETE TABLE ---------------- */
+  const deleteTable = async (id) => {
+  const token = localStorage.getItem("adminToken");
+
+  await fetch(
+    `${process.env.NEXT_PUBLIC_API_URL}/api/admin/tables/${id}`,
+    {
+      method: "DELETE",
+      headers: {
+        Authorization: `Bearer ${token}`,
+      },
+    }
+  );
+
+  fetchTables();
+};
 
   /* ---------------- TOGGLE STATUS ---------------- */
   const toggleStatus = async (table) => {
     const token = localStorage.getItem("adminToken");
 
-    await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL}/api/admin/tables/${table._id}/status`,
-      {
-        method: "PATCH",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({ isActive: !table.isActive }),
-      }
-    );
+    await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/tables/${table._id}/status`, {
+      method: "PATCH",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${token}`,
+      },
+      body: JSON.stringify({ isActive: !table.isActive }),
+    });
 
     fetchTables();
   };
@@ -99,11 +121,11 @@ export default function AdminTablesPage() {
 
     const token = localStorage.getItem("adminToken");
     const res = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL}/api/admin/tables/${table._id}/qr`,
+      `${process.env.NEXT_PUBLIC_API_URL}/api/admin/qr/tables/${table._id}/qr`,
       { headers: { Authorization: `Bearer ${token}` } }
     );
 
-    const data = await res.json();
+    const data = await res.json().catch(() => ({}));
     setQrData(data);
     setQrLoading(false);
   };
@@ -144,10 +166,10 @@ export default function AdminTablesPage() {
               <td className="p-3">
                 <span
                   className={`px-2 py-1 rounded text-sm ${
-                    t.active ? "bg-green-600" : "bg-red-600"
+                    t.isActive ? "bg-green-600" : "bg-red-600"
                   }`}
                 >
-                  {t.active ? "Active" : "Inactive"}
+                  {t.isActive ? "Active" : "Inactive"}
                 </span>
               </td>
 
@@ -159,10 +181,10 @@ export default function AdminTablesPage() {
                 <button
                   onClick={() => toggleStatus(t)}
                   className={`px-3 py-1 rounded text-sm ${
-                    t.active ? "bg-red-600" : "bg-green-600"
+                    t.isActive ? "bg-red-600" : "bg-green-600"
                   }`}
                 >
-                  {t.active ? "Deactivate" : "Activate"}
+                  {t.isActive ? "Deactivate" : "Activate"}
                 </button>
 
                 <button
@@ -170,6 +192,16 @@ export default function AdminTablesPage() {
                   className="px-3 py-1 bg-gray-700 rounded text-sm"
                 >
                   View QR
+                </button>
+
+                <button
+                  onClick={() => {
+                    if (!confirm("Delete this table?")) return;
+                    deleteTable(t._id);
+                  }}
+                  className="px-3 py-1 bg-red-700 rounded text-sm"
+                >
+                  Delete
                 </button>
               </td>
             </tr>
@@ -213,21 +245,13 @@ export default function AdminTablesPage() {
       {qrModal && (
         <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50">
           <div className="bg-gray-900 p-6 rounded w-full max-w-sm text-center">
-            <h2 className="text-lg mb-4">
-              QR for {qrModal.tableCode}
-            </h2>
+            <h2 className="text-lg mb-4">QR for {qrModal.tableCode}</h2>
 
-            {qrLoading && (
-              <div className="text-gray-400">Generating QR...</div>
-            )}
+            {qrLoading && <div className="text-gray-400">Generating QR...</div>}
 
-            {qrData && (
+            {qrData && qrData.qrDataUrl && (
               <>
-                <img
-                  src={qrData.qrDataUrl}
-                  alt="QR Code"
-                  className="mx-auto mb-4"
-                />
+                <img src={qrData.qrDataUrl} alt="QR Code" className="mx-auto mb-4" />
                 <a
                   href={qrData.qrDataUrl}
                   download={`table-${qrModal.tableCode}.png`}
@@ -235,11 +259,15 @@ export default function AdminTablesPage() {
                 >
                   Download QR
                 </a>
-                <div className="text-xs text-gray-400 break-all">
-                  {qrData.qrUrl}
-                </div>
+                <div className="text-xs text-gray-400 break-all">{qrData.qrUrl}</div>
               </>
             )}
+
+            {!qrLoading && (!qrData || !qrData.qrDataUrl) ? (
+              <div className="text-red-400 text-sm">
+                Failed to load QR. (Most likely endpoint not found)
+              </div>
+            ) : null}
 
             <button
               onClick={() => {

@@ -1,7 +1,25 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+
+function getToken() {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("adminToken") || localStorage.getItem("token");
+}
+
+function safeDecodeJwtPayload(token) {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+    const payload = parts[1];
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
 
 export default function AdminMenuPage() {
   const router = useRouter();
@@ -16,12 +34,19 @@ export default function AdminMenuPage() {
   const [showCategoryModal, setShowCategoryModal] = useState(false);
   const [showItemModal, setShowItemModal] = useState(false);
 
-  const [categoryForm, setCategoryForm] = useState({ name: "", description: "", order: 0 });
+  // ✅ Backend-aligned category form (Fix #3)
+  const [categoryForm, setCategoryForm] = useState({
+    name: "",
+    order: 0,
+    isActive: true,
+  });
+
   const [itemForm, setItemForm] = useState({
     categoryId: "",
     name: "",
     description: "",
     price: 0,
+    imageUrl: "",
     isAvailable: true,
   });
 
@@ -30,101 +55,135 @@ export default function AdminMenuPage() {
     setMounted(true);
   }, []);
 
+  // ✅ restaurantId awareness (Fix #2)
+  const { token, restaurantId } = useMemo(() => {
+    const t = getToken();
+    const payload = t ? safeDecodeJwtPayload(t) : null;
+    return { token: t, restaurantId: payload?.restaurantId || null };
+  }, [mounted]); // mounted ensures browser env
+
   /* Auth check */
   useEffect(() => {
     if (!mounted) return;
-    const token = localStorage.getItem("adminToken");
     if (!token) {
       router.push("/admin/login");
       return;
     }
     fetchCategories();
-  }, [mounted, router]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [mounted, router, token]);
+
+  const authHeaders = useMemo(() => {
+    return token ? { Authorization: `Bearer ${token}` } : {};
+  }, [token]);
 
   /* Fetch categories */
   const fetchCategories = async () => {
-    const token = localStorage.getItem("adminToken");
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/admin/menu/categories`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (!res.ok) throw new Error();
-      const data = await res.json();
+      setError(null);
+      setLoading(true);
+
+      const url = `${process.env.NEXT_PUBLIC_API_URL}/api/admin/menu/categories${
+        restaurantId ? `?restaurantId=${restaurantId}` : ""
+      }`;
+
+      const res = await fetch(url, { headers: authHeaders });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Failed to load categories");
+
       setCategories(data.categories || []);
-      setLoading(false);
-    } catch {
-      setError("Failed to load categories");
+    } catch (e) {
+      setError(e.message || "Failed to load categories");
+    } finally {
       setLoading(false);
     }
   };
 
   /* Fetch items */
   const fetchItems = async () => {
-    const token = localStorage.getItem("adminToken");
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/admin/menu/items`,
-        { headers: { Authorization: `Bearer ${token}` } }
-      );
-      if (!res.ok) throw new Error();
-      const data = await res.json();
+      setError(null);
+
+      const params = [];
+      if (restaurantId) params.push(`restaurantId=${restaurantId}`);
+
+      const url = `${process.env.NEXT_PUBLIC_API_URL}/api/admin/menu/items${
+        params.length ? `?${params.join("&")}` : ""
+      }`;
+
+      const res = await fetch(url, { headers: authHeaders });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Failed to load items");
+
       setItems(data.items || []);
-    } catch {
-      setError("Failed to load items");
+    } catch (e) {
+      setError(e.message || "Failed to load items");
     }
   };
 
   useEffect(() => {
+    if (!mounted) return;
     if (activeTab === "items") {
       fetchItems();
     }
-  }, [activeTab]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [activeTab, mounted]);
 
   /* Create category */
   const createCategory = async () => {
     if (!categoryForm.name.trim()) return;
-    const token = localStorage.getItem("adminToken");
 
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/admin/menu/categories`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(categoryForm),
-        }
-      );
-      if (!res.ok) throw new Error();
-      setCategoryForm({ name: "", description: "", order: 0 });
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/menu/categories`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
+        body: JSON.stringify({
+          name: categoryForm.name,
+          order: Number(categoryForm.order || 0),
+          isActive: !!categoryForm.isActive,
+          ...(restaurantId ? { restaurantId } : {}), // ✅ future-proof for SUPER_ADMIN
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Failed to create category");
+
+      setCategoryForm({ name: "", order: 0, isActive: true });
       setShowCategoryModal(false);
       fetchCategories();
-    } catch {
-      alert("Failed to create category");
+    } catch (e) {
+      alert(e.message || "Failed to create category");
     }
   };
 
   /* Create item */
   const createItem = async () => {
-    if (!itemForm.name.trim() || !itemForm.price) return;
-    const token = localStorage.getItem("adminToken");
+    if (!itemForm.name.trim() || !Number(itemForm.price)) return;
 
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/admin/menu/items`,
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify(itemForm),
-        }
-      );
-      if (!res.ok) throw new Error();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/menu/items`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...authHeaders,
+        },
+        body: JSON.stringify({
+          categoryId: itemForm.categoryId || null,
+          name: itemForm.name,
+          description: itemForm.description || "",
+          price: Number(itemForm.price),
+          images: itemForm.imageUrl ? [itemForm.imageUrl] : [],
+          isAvailable: !!itemForm.isAvailable,   // ✅ force boolean
+          ...(restaurantId ? { restaurantId } : {}),
+        }),
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Failed to create item");
+
       setItemForm({
         categoryId: "",
         name: "",
@@ -134,48 +193,46 @@ export default function AdminMenuPage() {
       });
       setShowItemModal(false);
       fetchItems();
-    } catch {
-      alert("Failed to create item");
+    } catch (e) {
+      alert(e.message || "Failed to create item");
     }
   };
 
   /* Delete category */
   const deleteCategory = async (id) => {
     if (!confirm("Delete this category?")) return;
-    const token = localStorage.getItem("adminToken");
 
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/admin/menu/categories/${id}`,
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      if (!res.ok) throw new Error();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/menu/categories/${id}`, {
+        method: "DELETE",
+        headers: authHeaders,
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Failed to delete category");
+
       fetchCategories();
-    } catch {
-      alert("Failed to delete category");
+    } catch (e) {
+      alert(e.message || "Failed to delete category");
     }
   };
 
   /* Delete item */
   const deleteItem = async (id) => {
     if (!confirm("Delete this item?")) return;
-    const token = localStorage.getItem("adminToken");
 
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/admin/menu/items/${id}`,
-        {
-          method: "DELETE",
-          headers: { Authorization: `Bearer ${token}` },
-        }
-      );
-      if (!res.ok) throw new Error();
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/menu/items/${id}`, {
+        method: "DELETE",
+        headers: authHeaders,
+      });
+
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data?.message || "Failed to delete item");
+
       fetchItems();
-    } catch {
-      alert("Failed to delete item");
+    } catch (e) {
+      alert(e.message || "Failed to delete item");
     }
   };
 
@@ -224,8 +281,23 @@ export default function AdminMenuPage() {
           <div className="grid gap-4">
             {categories.map((cat) => (
               <div key={cat._id} className="p-4 bg-gray-800 rounded">
-                <h3 className="font-semibold text-lg">{cat.name}</h3>
-                <p className="text-sm text-gray-400">{cat.description || "-"}</p>
+                <div className="flex items-center justify-between gap-3">
+                  <h3 className="font-semibold text-lg">{cat.name}</h3>
+
+                  {/* ✅ Status badge (Fix #4) */}
+                  <span
+                    className={`text-xs px-2 py-1 rounded ${
+                      cat.isActive ? "bg-green-600" : "bg-red-600"
+                    }`}
+                  >
+                    {cat.isActive ? "Active" : "Inactive"}
+                  </span>
+                </div>
+
+                <div className="text-sm text-gray-400 mt-1">
+                  Order: <span className="text-gray-200">{cat.order ?? 0}</span>
+                </div>
+
                 <div className="mt-3 flex gap-2">
                   <button
                     onClick={() => deleteCategory(cat._id)}
@@ -243,6 +315,7 @@ export default function AdminMenuPage() {
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
               <div className="bg-gray-800 p-6 rounded-lg w-96">
                 <h2 className="text-xl font-semibold mb-4">Add Category</h2>
+
                 <input
                   type="text"
                   placeholder="Category name"
@@ -252,18 +325,35 @@ export default function AdminMenuPage() {
                   }
                   className="w-full p-2 mb-3 bg-gray-700 rounded text-white"
                 />
+
                 <input
-                  type="text"
-                  placeholder="Description"
-                  value={categoryForm.description}
+                  type="number"
+                  placeholder="Order (optional)"
+                  value={categoryForm.order}
                   onChange={(e) =>
                     setCategoryForm({
                       ...categoryForm,
-                      description: e.target.value,
+                      order: Number(e.target.value),
                     })
                   }
                   className="w-full p-2 mb-3 bg-gray-700 rounded text-white"
                 />
+
+                {/* ✅ isActive toggle (Fix #3/#4) */}
+                <label className="flex items-center gap-2 text-sm text-gray-300 mb-4">
+                  <input
+                    type="checkbox"
+                    checked={categoryForm.isActive}
+                    onChange={(e) =>
+                      setCategoryForm({
+                        ...categoryForm,
+                        isActive: e.target.checked,
+                      })
+                    }
+                  />
+                  Active
+                </label>
+
                 <div className="flex gap-2">
                   <button
                     onClick={createCategory}
@@ -310,7 +400,19 @@ export default function AdminMenuPage() {
                     <td className="p-3">{item.name}</td>
                     <td className="p-3">₹{item.price}</td>
                     <td className="p-3">
-                      {item.isAvailable ? "✓" : "✗"}
+                      {/* ✅ clearer availability badge (Fix #4) */}
+                      {(() => {
+                        const available =
+                          item.isAvailable === true ||
+                          item.available === true ||
+                          item.isActive === true;
+
+                        return (
+                          <span className={`text-xs px-2 py-1 rounded ${available ? "bg-green-600" : "bg-red-600"}`}>
+                            {available ? "Available" : "Unavailable"}
+                          </span>
+                        );
+                      })()}
                     </td>
                     <td className="p-3">
                       <button
@@ -331,6 +433,7 @@ export default function AdminMenuPage() {
             <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
               <div className="bg-gray-800 p-6 rounded-lg w-96 max-h-96 overflow-y-auto">
                 <h2 className="text-xl font-semibold mb-4">Add Item</h2>
+
                 <select
                   value={itemForm.categoryId}
                   onChange={(e) =>
@@ -345,6 +448,7 @@ export default function AdminMenuPage() {
                     </option>
                   ))}
                 </select>
+
                 <input
                   type="text"
                   placeholder="Item name"
@@ -354,6 +458,7 @@ export default function AdminMenuPage() {
                   }
                   className="w-full p-2 mb-3 bg-gray-700 rounded text-white"
                 />
+
                 <input
                   type="text"
                   placeholder="Description"
@@ -366,6 +471,17 @@ export default function AdminMenuPage() {
                   }
                   className="w-full p-2 mb-3 bg-gray-700 rounded text-white"
                 />
+
+                <input
+                  type="text"
+                  placeholder="Image URL (optional)"
+                  value={itemForm.imageUrl}
+                  onChange={(e) =>
+                    setItemForm({ ...itemForm, imageUrl: e.target.value })
+                  }
+                  className="w-full p-2 mb-3 bg-gray-700 rounded text-white"
+                />
+
                 <input
                   type="number"
                   placeholder="Price"
@@ -378,6 +494,18 @@ export default function AdminMenuPage() {
                   }
                   className="w-full p-2 mb-3 bg-gray-700 rounded text-white"
                 />
+
+                <label className="flex items-center gap-2 text-sm text-gray-300 mb-4">
+                  <input
+                    type="checkbox"
+                    checked={itemForm.isAvailable}
+                    onChange={(e) =>
+                      setItemForm({ ...itemForm, isAvailable: e.target.checked })
+                    }
+                  />
+                  Available
+                </label>
+
                 <div className="flex gap-2">
                   <button
                     onClick={createItem}
