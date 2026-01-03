@@ -30,6 +30,7 @@ app.use('/api/admin/auth', require('./routes/admin/auth.routes'));
 app.use('/api/admin/menu', require('./routes/admin/menu.routes'));
 app.use('/api/admin/tables', require('./routes/admin/table.routes'));
 app.use('/api/admin/orders', require('./routes/admin/order.routes'));
+app.use("/api/admin/super-admin", require("./routes/admin/superAdminAuth.routes"));
 app.use("/api/admin/restaurants", require("./routes/admin/restaurant.routes"));
 app.use("/api/admin/qr", require("./routes/admin/qr.routes"));
 // ⚠️ LEGACY menu APIs (do not use in new UI; keep temporarily for backward compatibility)
@@ -45,6 +46,7 @@ app.use("/api/customer/requests", require("./routes/customer/serviceRequest.rout
 // admin bill/service requests
 app.use("/api/admin/requests", require("./routes/admin/serviceRequest.routes"));
 
+app.use("/api/admin/super-admin", require("./routes/admin/superAdmin.routes"));
 
 // simple health
 app.get('/', (req, res) => res.send('QR Menu Backend is running (with sockets)'));

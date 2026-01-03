@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
-
+import { useRouter } from "next/navigation";
 import BillingModal from "../../components/BillingModal";
 import RevenueSummaryPanel from "../../components/RevenueSummaryPanel";
 import BillHistoryPanel from "../../components/BillHistoryPanel";
@@ -79,6 +79,13 @@ function StatusPill({ status }) {
 }
 
 export default function LiveOrdersPage() {
+  // ✅ FIX: Hooks must be inside component (this caused your invalid hook call):contentReference[oaicite:1]{index=1}
+  const router = useRouter();
+  useEffect(() => {
+    const t = getToken();
+    if (!t) router.push("/admin/login");
+  }, [router]);
+
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
@@ -263,8 +270,6 @@ export default function LiveOrdersPage() {
     socket.on("order_updated", onOrderUpdated);
     socket.on("billing_closed", onBillingClosed);
 
-    // ✅ listen to the same event name you emit in backend controller:
-    // io.to(`restaurant_${restaurantId}`).emit("service_request", { request: created })
     socket.on("service_request", onServiceRequest);
     socket.on("service_request_update", onServiceRequestUpdate);
 
@@ -318,7 +323,6 @@ export default function LiveOrdersPage() {
     try {
       setErr("");
       await apiFetch(`/api/admin/requests/${id}/ack`, { method: "PATCH" });
-      // refresh list (socket update may also remove it, but refresh is safest)
       await fetchBillRequests(restaurantIdRef.current);
     } catch (e) {
       setErr(e.message || "Failed to acknowledge bill request");
@@ -389,7 +393,6 @@ export default function LiveOrdersPage() {
         </div>
       ) : null}
 
-      {/* ✅ Toast banner (NEW) */}
       {billToast ? (
         <div
           style={{
@@ -405,7 +408,6 @@ export default function LiveOrdersPage() {
         </div>
       ) : null}
 
-      {/* ✅ Pending Bill Requests panel (NEW) */}
       {billRequests.length > 0 ? (
         <div style={{ ...cardStyle, marginBottom: 12 }}>
           <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>

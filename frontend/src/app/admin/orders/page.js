@@ -1,367 +1,252 @@
 "use client";
 
-import { useEffect, useState, useRef } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { io } from "socket.io-client";
-import { useRouter } from "next/navigation";
 
-const RESTAURANT_ID = process.env.NEXT_PUBLIC_RESTAURANT_ID || "693bce41df2c72b4f331b7cf";
+const API_URL = process.env.NEXT_PUBLIC_API_URL;
+const SOCKET_URL = process.env.NEXT_PUBLIC_SOCKET_URL || API_URL;
+
+/** Get admin token from localStorage */
+function getToken() {
+  if (typeof window === "undefined") return null;
+  return localStorage.getItem("adminToken") || localStorage.getItem("token");
+}
+
+/** Decode JWT payload safely (no verification, just decode) */
+function safeDecodeJwtPayload(token) {
+  try {
+    const parts = token.split(".");
+    if (parts.length < 2) return null;
+
+    const payload = parts[1];
+    const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
+
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
+/** API fetch helper */
+async function apiFetch(path, opts = {}) {
+  const token = getToken();
+
+  const res = await fetch(`${API_URL}${path}`, {
+    ...opts,
+    headers: {
+      "Content-Type": "application/json",
+      ...(opts.headers || {}),
+      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+    },
+  });
+
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data?.message || "Request failed");
+  }
+  return data;
+}
 
 export default function AdminOrdersPage() {
-  const router = useRouter();
   const [orders, setOrders] = useState([]);
+  const [loadingOrders, setLoadingOrders] = useState(true);
   const [error, setError] = useState(null);
+
+  // For status update UI feedback
   const [updatingId, setUpdatingId] = useState(null);
 
-  /* ------------------ KITCHEN MODE ------------------ */
-  const [kitchenMode, setKitchenMode] = useState(false);
-  const [mounted, setMounted] = useState(false);
-
-  useEffect(() => {
-    setMounted(true);
-    const saved = localStorage.getItem("kitchenMode");
-    if (saved === "true") {
-        setKitchenMode(true);
-    }
+  // Get restaurantId from JWT
+  const restaurantId = useMemo(() => {
+    const token = getToken();
+    const payload = token ? safeDecodeJwtPayload(token) : null;
+    return payload?.restaurantId || null;
   }, []);
 
+  // Socket instance
+  const [socket, setSocket] = useState(null);
 
-  const [soundEnabled, setSoundEnabled] = useState(false);
-  const [showServed, setShowServed] = useState(false);
-
-  function toggleKitchenMode() {
-    setKitchenMode((prev) => {
-      localStorage.setItem("kitchenMode", (!prev).toString());
-      return !prev;
-    });
-  }
-
-  /* ------------------ SOUND SETUP ------------------ */
-  const audioRef = useRef(null);
-  const playedOrdersRef = useRef(new Set());
-
+  // Connect socket + join admin room for this restaurant
   useEffect(() => {
-    audioRef.current = new Audio("/sounds/new-order.mp3");
-    audioRef.current.volume = 0.9;
-  }, []);
+    // If no token or no restaurantId, do nothing here (page may still render)
+    const token = getToken();
+    if (!token) return;
 
-  function enableSound() {
-    if (!audioRef.current) return;
+    const s = io(SOCKET_URL, { transports: ["websocket"] });
+    setSocket(s);
 
-    audioRef.current
-        .play()
-        .then(() => {
-        audioRef.current.pause();
-        audioRef.current.currentTime = 0;
-        setSoundEnabled(true);
-        })
-        .catch(() => {});
-  }
-
-  function playNewOrderSound(orderId) {
-    if (!kitchenMode || !soundEnabled) return;
-    if (playedOrdersRef.current.has(orderId)) return;
-
-    playedOrdersRef.current.add(orderId);
-
-    try {
-      audioRef.current.currentTime = 0;
-      audioRef.current.play().catch(() => {});
-    } catch {}
-  }
-
-  /* ------------------ AUTH GUARD ------------------ */
-  useEffect(() => {
-    const token = localStorage.getItem("adminToken");
-    if (!token) router.push("/admin/login");
-  }, [router]);
-
-  /* ------------------ INITIAL FETCH ------------------ */
-  useEffect(() => {
-    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/orders`, {
-      headers: {
-        Authorization: `Bearer ${localStorage.getItem("adminToken")}`,
-      },
-    })
-      .then((res) => res.json())
-      .then((data) => {
-        // Handle both response formats
-        const ordersList = data.orders || data || [];
-        setOrders(Array.isArray(ordersList) ? ordersList : []);
-      })
-      .catch(() => setError("Failed to load orders"));
-  }, []);
-
-  /* ------------------ SOCKET ------------------ */
-  useEffect(() => {
-    const socket = io(process.env.NEXT_PUBLIC_API_URL, { withCredentials: true });
-
-    socket.emit("join_admin_room", { restaurantId: RESTAURANT_ID });
-
-    socket.on("new_order", ({ order }) => {
-      setOrders((prev) => [order, ...prev]);
-
-      if (order.status === "ACCEPTED") {
-        playNewOrderSound(order._id);
+    s.on("connect", () => {
+      if (restaurantId) {
+        s.emit("join_admin_room", { restaurantId });
       }
     });
 
-    const updateHandler = ({ order }) => {
-      setOrders((prev) =>
-        prev.map((o) => (o._id === order._id ? order : o))
-      );
+    // When new order comes, refresh list
+    s.on("new_order", () => {
+      fetchOrders();
+    });
+
+    // When order status updated, refresh list
+    s.on("order_status_updated", () => {
+      fetchOrders();
+    });
+
+    return () => {
+      try {
+        if (restaurantId) s.emit("leave_admin_room", { restaurantId });
+        s.disconnect();
+      } catch {}
     };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [restaurantId]);
 
-    socket.on("order_updated", updateHandler);
-    socket.on("order_status", updateHandler);
+  // Fetch orders
+  async function fetchOrders() {
+    try {
+      setLoadingOrders(true);
+      setError(null);
 
-    return () => socket.disconnect();
+      // ✅ Use admin orders API (scoped server-side by token restaurantId)
+      const data = await apiFetch("/api/admin/orders");
+
+      // Your backend might return { orders: [...] } or directly [...]
+      const list = Array.isArray(data) ? data : data.orders || [];
+      setOrders(list);
+    } catch (err) {
+      setError(err.message || "Failed to fetch orders");
+    } finally {
+      setLoadingOrders(false);
+    }
+  }
+
+  useEffect(() => {
+    fetchOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  /* ------------------ UPDATE STATUS ------------------ */
+  // Update order status
   async function updateStatus(orderId, status) {
-    const token = localStorage.getItem("adminToken");
-    if (!token) return router.push("/admin/login");
-
     try {
       setUpdatingId(orderId);
 
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/orders/${orderId}/status`,
-        {
-          method: "PATCH",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${token}`,
-          },
-          body: JSON.stringify({ status }),
-        }
-      );
+      // ✅ FIXED: use admin route
+      await apiFetch(`/api/admin/orders/${orderId}/status`, {
+        method: "PUT",
+        body: JSON.stringify({ status }),
+      });
 
-      if (!res.ok) throw new Error();
-
-      const data = await res.json();
-      setOrders((prev) =>
-        prev.map((o) => (o._id === orderId ? data.order : o))
-      );
-    } catch {
-      alert("Failed to update status");
+      // Refresh list
+      await fetchOrders();
+    } catch (err) {
+      alert(err.message || "Failed to update status");
     } finally {
       setUpdatingId(null);
     }
   }
 
-  /* ------------------ GROUP & SORT ------------------ */
-  const groupedByTable = orders.reduce((acc, order) => {
-    const tableCode = order.tableId?.tableCode || "Unknown";
-    if (!acc[tableCode]) acc[tableCode] = [];
-    acc[tableCode].push(order);
-    return acc;
-  }, {});
+  // Simple status badge
+  function StatusBadge({ status }) {
+    const s = String(status || "").toUpperCase();
+    const cls =
+      s === "PENDING"
+        ? "bg-yellow-700"
+        : s === "ACCEPTED"
+        ? "bg-green-700"
+        : s === "REJECTED"
+        ? "bg-red-700"
+        : s === "COMPLETED"
+        ? "bg-blue-700"
+        : "bg-gray-700";
 
-  function sortOrders(list) {
-    const priority = { ACCEPTED: 1, IN_KITCHEN: 2, READY: 3, PREPARING: 4, SERVED: 5 };
-    return [...list].sort(
-      (a, b) => (priority[a.status] || 999) - (priority[b.status] || 999)
-    );
+    return <span className={`px-2 py-1 rounded text-xs text-white ${cls}`}>{s}</span>;
   }
 
-  if (!mounted) return null;
-  /* ------------------ UI ------------------ */
   return (
-    <div
-      className={`min-h-screen text-white ${
-        kitchenMode ? "bg-black p-4" : "bg-gray-950 p-6"
-      }`}
-    >
-      {/* HEADER */}
-      <div className="flex justify-between items-center mb-6">
-        <h1 className="text-2xl font-bold">
-          {kitchenMode ? "🍽 Kitchen Orders" : "🍽 Live Restaurant Orders"}
-        </h1>
-
-        <div className="flex gap-3">
-          {kitchenMode && (
-            <button
-              onClick={() => setShowServed((p) => !p)}
-              className="px-4 py-2 rounded-lg bg-gray-800 text-sm"
-            >
-              {showServed ? "Hide Served" : "Show Served"}
-            </button>
-          )}
-
-          <button
-            onClick={() => {
-                enableSound();
-                toggleKitchenMode();
-            }}
-            className={`px-4 py-2 rounded-lg text-sm font-semibold ${
-              kitchenMode
-                ? "bg-emerald-500 text-black"
-                : "bg-gray-800 text-white"
-            }`}
-          >
-            {kitchenMode ? "Exit Kitchen" : "Kitchen Mode"}
-          </button>
-        </div>
+    <div className="p-8">
+      <div className="mb-4">
+        <h1 className="text-2xl font-semibold text-white">Orders</h1>
+        <p className="text-sm text-gray-300">
+          Restaurant context:{" "}
+          <span className="font-mono">{restaurantId || "(not found in token)"}</span>
+        </p>
       </div>
 
-      {!kitchenMode && error && (
-        <p className="text-red-500 mb-4">{error}</p>
-      )}
-
-      {Object.entries(groupedByTable).map(([tableCode, tableOrders]) => {
-        const sorted = sortOrders(tableOrders);
-
-        const visibleOrders = kitchenMode
-          ? sorted.filter(
-              (o) => showServed || o.status !== "SERVED"
-            )
-          : sorted;
-
-        return (
-          <div
-            key={tableCode}
-            className="rounded-xl border border-gray-700 p-4 mb-6"
-          >
-            <h2 className="text-lg font-bold mb-4">
-              🍽 Table {tableCode}
-            </h2>
-
-            <div className="space-y-4">
-              {visibleOrders.map((order) => (
-                <div
-                  key={order._id}
-                  className={`rounded-lg p-4 ${
-                    order.status === "ACCEPTED"
-                      ? "bg-yellow-500/10 border border-yellow-400"
-                      : order.status === "PREPARING"
-                      ? "bg-blue-500/10 border border-blue-400"
-                      : "bg-green-500/10 border border-green-400"
-                  }`}
-                >
-                  {/* ITEMS */}
-                  <ul
-                    className={`space-y-2 ${
-                      kitchenMode ? "text-lg" : "text-sm"
-                    }`}
-                  >
-                    {(order.orderItems || []).map((item, idx) => (
-                      <li key={idx} className="font-bold">
-                        {item.quantity}× {item.name}
-                      </li>
-                    ))}
-                  </ul>
-
-                  {/* ACTIONS */}
-                  <div className="flex justify-between items-center mt-4">
-                    <span className="text-sm opacity-70">
-                      Order #{order._id.slice(-6)}
-                    </span>
-
-                    {/* ADMIN MODE */}
-                    {!kitchenMode && (
-                      <>
-                        {order.status === "ACCEPTED" && (
-                          <>
-                            <button
-                              onClick={() =>
-                                updateStatus(order._id, "IN_KITCHEN")
-                              }
-                              className="px-3 py-1 bg-yellow-600 rounded text-sm hover:bg-yellow-700"
-                            >
-                              Start Cooking
-                            </button>
-                            <button
-                              onClick={() =>
-                                updateStatus(order._id, "PREPARING")
-                              }
-                              className="px-3 py-1 bg-blue-600 rounded text-sm hover:bg-blue-700"
-                            >
-                              Mark Preparing
-                            </button>
-                          </>
-                        )}
-
-                        {order.status === "IN_KITCHEN" && (
-                          <>
-                            <button
-                              onClick={() =>
-                                updateStatus(order._id, "READY")
-                              }
-                              className="px-3 py-1 bg-purple-600 rounded text-sm hover:bg-purple-700"
-                            >
-                              Mark Ready
-                            </button>
-                            <button
-                              onClick={() =>
-                                updateStatus(order._id, "PREPARING")
-                              }
-                              className="px-3 py-1 bg-blue-600 rounded text-sm hover:bg-blue-700"
-                            >
-                              Back to Preparing
-                            </button>
-                          </>
-                        )}
-
-                        {["READY", "PREPARING"].includes(order.status) && (
-                          <button
-                            onClick={() =>
-                              updateStatus(order._id, "SERVED")
-                            }
-                            className="px-4 py-2 bg-green-600 rounded-lg"
-                          >
-                            Mark Served
-                          </button>
-                        )}
-                      </>
-                    )}
-
-                    {/* KITCHEN MODE */}
-                    {kitchenMode && order.status === "ACCEPTED" && (
-                      <button
-                        onClick={() =>
-                          updateStatus(order._id, "IN_KITCHEN")
-                        }
-                        className="px-6 py-2 bg-blue-600 rounded-lg font-semibold"
-                      >
-                        Start Cooking
-                      </button>
-                    )}
-
-                    {kitchenMode && order.status === "IN_KITCHEN" && (
-                      <button
-                        onClick={() =>
-                          updateStatus(order._id, "READY")
-                        }
-                        className="px-6 py-2 bg-purple-600 rounded-lg font-semibold"
-                      >
-                        Mark Ready
-                      </button>
-                    )}
-
-                    {kitchenMode && ["READY", "PREPARING"].includes(order.status) && (
-                      <button
-                        onClick={() =>
-                          updateStatus(order._id, "SERVED")
-                        }
-                        className="px-6 py-2 bg-green-600 rounded-lg font-semibold"
-                      >
-                        Serve Order
-                      </button>
-                    )}
+      {loadingOrders ? (
+        <div className="text-white">Loading...</div>
+      ) : error ? (
+        <div className="text-red-400">{error}</div>
+      ) : orders.length === 0 ? (
+        <div className="text-white">No orders found.</div>
+      ) : (
+        <div className="space-y-4">
+          {orders.map((order) => (
+            <div
+              key={order._id}
+              className="bg-gray-800 rounded-lg shadow-lg p-4 flex flex-col gap-3"
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="text-white">
+                  <div className="font-semibold">
+                    Order #{String(order._id).slice(-6)}
+                  </div>
+                  <div className="text-sm text-gray-300">
+                    Table: <b>{order.tableCode || "-"}</b> &nbsp;|&nbsp; Total:{" "}
+                    <b>₹{order.totalAmount ?? order.total ?? "-"}</b>
                   </div>
                 </div>
-              ))}
 
-              {visibleOrders.length === 0 && (
-                <p className="text-sm opacity-50">
-                  No active orders
-                </p>
-              )}
+                <StatusBadge status={order.status} />
+              </div>
+
+              {/* Items */}
+              <div className="text-gray-200 text-sm">
+                <div className="font-semibold mb-1">Items:</div>
+                <ul className="list-disc ml-5 space-y-1">
+                  {(order.items || []).map((it, idx) => (
+                    <li key={idx}>
+                      {it.name || it.itemName || "Item"} × {it.qty || it.quantity || 1}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              {/* Actions */}
+              <div className="flex flex-wrap gap-2">
+                <button
+                  disabled={updatingId === order._id}
+                  onClick={() => updateStatus(order._id, "ACCEPTED")}
+                  className="px-3 py-2 rounded bg-green-600 text-white hover:bg-green-700 disabled:opacity-60"
+                >
+                  Accept
+                </button>
+
+                <button
+                  disabled={updatingId === order._id}
+                  onClick={() => updateStatus(order._id, "REJECTED")}
+                  className="px-3 py-2 rounded bg-red-600 text-white hover:bg-red-700 disabled:opacity-60"
+                >
+                  Reject
+                </button>
+
+                <button
+                  disabled={updatingId === order._id}
+                  onClick={() => updateStatus(order._id, "COMPLETED")}
+                  className="px-3 py-2 rounded bg-blue-600 text-white hover:bg-blue-700 disabled:opacity-60"
+                >
+                  Complete
+                </button>
+
+                <button
+                  onClick={fetchOrders}
+                  className="px-3 py-2 rounded bg-gray-700 text-white hover:bg-gray-600"
+                >
+                  Refresh
+                </button>
+              </div>
             </div>
-          </div>
-        );
-      })}
+          ))}
+        </div>
+      )}
     </div>
   );
 }

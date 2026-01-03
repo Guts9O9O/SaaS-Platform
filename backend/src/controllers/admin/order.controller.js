@@ -3,32 +3,43 @@ const Table = require("../../models/Table");
 
 exports.getLiveOrdersByTable = async (req, res) => {
   try {
-    const { restaurantId } = req.admin;
+    const restaurantId = req.restaurantId;
 
-    // 1) Get active tables (optional filter) OR just fetch all tables for restaurant
-    const tables = await Table.find({ restaurantId }).select("_id tableCode").lean();
+    if (!restaurantId) {
+      return res.status(400).json({ message: "Restaurant context missing" });
+    }
+
+    // 1) Get tables for restaurant
+    const tables = await Table.find({ restaurantId })
+      .select("_id tableCode")
+      .lean();
 
     const tableMap = new Map(
-      tables.map((t) => [String(t._id), { tableId: t._id, tableCode: t.tableCode }])
+      tables.map((t) => [
+        String(t._id),
+        { tableId: t._id, tableCode: t.tableCode },
+      ])
     );
 
-    // 2) Fetch live orders (not billed, not cancelled/rejected)
+    // 2) Fetch live orders
     const orders = await Order.find({
       restaurantId,
       billed: false,
       status: { $nin: ["CANCELLED", "REJECTED"] },
     })
-      .sort({ createdAt: -1 }) // newest first overall
+      .sort({ createdAt: -1 })
       .lean();
 
-    // 3) Group by tableId
+    // 3) Group by table
     const grouped = new Map();
 
     for (const o of orders) {
       const tId = String(o.tableId);
 
       if (!grouped.has(tId)) {
-        const tInfo = tableMap.get(tId) || { tableId: o.tableId, tableCode: "UNKNOWN" };
+        const tInfo =
+          tableMap.get(tId) || { tableId: o.tableId, tableCode: "UNKNOWN" };
+
         grouped.set(tId, {
           ...tInfo,
           lastOrderAt: o.createdAt,
@@ -41,13 +52,12 @@ exports.getLiveOrdersByTable = async (req, res) => {
       g.openOrders.push(o);
       g.totalOpenAmount += Number(o.totalAmount || 0);
 
-      // lastOrderAt should be max createdAt (orders are sorted desc, first is latest)
       if (!g.lastOrderAt || new Date(o.createdAt) > new Date(g.lastOrderAt)) {
         g.lastOrderAt = o.createdAt;
       }
     }
 
-    // 4) Convert to array + sort tables by latest activity
+    // 4) Sort tables by activity
     const result = Array.from(grouped.values()).sort(
       (a, b) => new Date(b.lastOrderAt) - new Date(a.lastOrderAt)
     );

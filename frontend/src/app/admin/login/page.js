@@ -30,8 +30,17 @@ export default function AdminLoginPage() {
 
       console.log("ADMIN TOKEN SAVED:", data.token);
 
-      // redirect to orders page
-      router.push("/admin/orders");
+      // ✅ SAVE TOKEN
+      localStorage.setItem("adminToken", data.token);
+
+      // ✅ Redirect based on role
+      if (data?.user?.role === "SUPER_ADMIN") {
+        router.push("/admin/super-admin");
+        return;
+      }
+
+      // Restaurant Admin / Staff should land on Live Orders dashboard
+      router.push("/admin/live-orders");
     } catch (err) {
       setError(err.message);
     }

@@ -1,64 +1,54 @@
-const jwt = require('jsonwebtoken');
-const User = require('../models/User');
-require('dotenv').config();
+const jwt = require("jsonwebtoken");
+const User = require("../models/User");
 
-const jwtSecret = process.env.JWT_SECRET || 'replace_this_secret';
-
-const adminAuth = async (req, res, next) => {
+module.exports = async function authAdmin(req, res, next) {
   try {
-    let token = null;
-    const authHeader = req.headers.authorization;
-
-    // 🔍 DEBUG 1
-    console.log("[ADMIN AUTH] Authorization header:", authHeader);
-
-    if (authHeader && authHeader.startsWith('Bearer ')) {
-      token = authHeader.split(' ')[1];
-    } else if (req.cookies && req.cookies.token) {
-      token = req.cookies.token;
-    }
-
-    // 🔍 DEBUG 2
-    console.log("[ADMIN AUTH] Extracted token:", token);
+    const header = req.headers.authorization || "";
+    const token = header.startsWith("Bearer ") ? header.slice(7) : null;
 
     if (!token) {
-      return res.status(401).json({ message: 'Not authenticated (no token)' });
+      return res.status(401).json({ message: "No token provided" });
     }
 
-    // 🔍 DEBUG 3
-    console.log(
-      "[ADMIN AUTH] Token dot count:",
-      token.split(".").length - 1
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    if (!decoded?.userId) {
+      return res.status(401).json({ message: "Invalid token payload" });
+    }
+
+    const user = await User.findById(decoded.userId).select(
+      "_id role restaurantId email name"
     );
 
-    const decoded = jwt.verify(token, jwtSecret);
-
-    if (!decoded || !decoded.userId) {
-      return res.status(401).json({ message: 'Invalid token' });
-    }
-
-    const user = await User.findById(decoded.userId);
     if (!user) {
-      return res.status(401).json({ message: 'User not found' });
+      return res.status(401).json({ message: "Invalid token user" });
     }
 
-    if (!['SUPER_ADMIN', 'RESTAURANT_ADMIN', 'STAFF'].includes(user.role)) {
-      return res.status(403).json({ message: 'Insufficient permissions' });
+    // ✅ ALLOW BOTH ADMINS
+    if (!["SUPER_ADMIN", "RESTAURANT_ADMIN"].includes(user.role)) {
+      return res.status(403).json({ message: "Forbidden" });
     }
 
-    // Attach restaurant context (from JWT, fallback to DB)
+    // ✅ Restaurant admin MUST have restaurantId
+    if (user.role === "RESTAURANT_ADMIN" && !user.restaurantId) {
+      return res.status(403).json({ message: "Restaurant context missing" });
+    }
+
+    req.user = user;
+
+    // ✅ SINGLE SOURCE OF TRUTH
+    req.restaurantId = user.restaurantId;
+
+    // (OPTIONAL, backward compatibility if some controllers use req.admin)
     req.admin = {
       userId: user._id,
       role: user.role,
-      restaurantId: decoded.restaurantId || user.restaurantId || null
+      restaurantId: user.restaurantId
     };
 
-    req.user = user;
     next();
   } catch (err) {
-    console.error('[ADMIN AUTH ERROR]', err.message || err);
-    return res.status(401).json({ message: 'Authentication failed' });
+    console.error("[ADMIN AUTH ERROR]", err.message);
+    return res.status(401).json({ message: "Unauthorized" });
   }
 };
-
-module.exports = adminAuth;
