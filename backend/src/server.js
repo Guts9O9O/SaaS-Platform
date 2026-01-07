@@ -18,7 +18,7 @@ app.use(cors({
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
-
+app.use("/uploads", express.static("uploads"));
 // routes (existing)
 app.use('/api/otp', require('./routes/otpRoutes'));
 app.use("/api/menu", require("./routes/customer/menuPublic.routes"));
@@ -40,6 +40,7 @@ app.use("/api/customer/session", require("./routes/customer/session.routes"));
 app.use("/api/customer/orders", require("./routes/customer/order.routes"));
 app.use("/api/admin/billing", require("./routes/admin/billing.routes"));
 app.use("/api/admin/revenue", require("./routes/admin/revenue.routes"));
+app.use("/api/admin/upload", require("./routes/admin/upload.routes"));
 // customer bill/service requests
 app.use("/api/customer/requests", require("./routes/customer/serviceRequest.routes"));
 

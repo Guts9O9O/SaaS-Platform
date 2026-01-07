@@ -46,7 +46,8 @@ export default function AdminMenuPage() {
     name: "",
     description: "",
     price: 0,
-    imageUrl: "",
+    imageFile: null,     // 👈 real file
+    imageUrl: "",        // 👈 backend path
     isAvailable: true,
   });
 
@@ -159,29 +160,56 @@ export default function AdminMenuPage() {
     }
   };
 
+  const uploadImage = async (file) => {
+    const formData = new FormData();
+    formData.append("image", file);
+
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL}/api/admin/upload/menu-image`,
+      {
+        method: "POST",
+        headers: authHeaders, // ⚠️ DO NOT set Content-Type
+        body: formData,
+      }
+    );
+
+    const data = await res.json();
+    if (!res.ok) throw new Error(data?.message || "Image upload failed");
+
+    return data.imageUrl; // ✅ matches backend
+  };
   /* Create item */
   const createItem = async () => {
     if (!itemForm.name.trim() || !Number(itemForm.price)) return;
 
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/menu/items`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          ...authHeaders,
-        },
-        body: JSON.stringify({
-          categoryId: itemForm.categoryId || null,
-          name: itemForm.name,
-          description: itemForm.description || "",
-          price: Number(itemForm.price),
-          images: itemForm.imageUrl ? [itemForm.imageUrl] : [],
-          isAvailable: !!itemForm.isAvailable,   // ✅ force boolean
-          ...(restaurantId ? { restaurantId } : {}),
-        }),
-      });
+      let uploadedImageUrl = "";
 
-      const data = await res.json().catch(() => ({}));
+      if (itemForm.imageFile) {
+        uploadedImageUrl = await uploadImage(itemForm.imageFile);
+      }
+
+      const res = await fetch(
+        `${process.env.NEXT_PUBLIC_API_URL}/api/admin/menu/items`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            ...authHeaders,
+          },
+          body: JSON.stringify({
+            categoryId: itemForm.categoryId || null,
+            name: itemForm.name,
+            description: itemForm.description || "",
+            price: Number(itemForm.price),
+            images: uploadedImageUrl ? [uploadedImageUrl] : [],
+            isAvailable: !!itemForm.isAvailable,
+            ...(restaurantId ? { restaurantId } : {}),
+          }),
+        }
+      );
+
+      const data = await res.json();
       if (!res.ok) throw new Error(data?.message || "Failed to create item");
 
       setItemForm({
@@ -189,8 +217,11 @@ export default function AdminMenuPage() {
         name: "",
         description: "",
         price: 0,
+        imageFile: null,
+        imageUrl: "",
         isAvailable: true,
       });
+
       setShowItemModal(false);
       fetchItems();
     } catch (e) {
@@ -473,11 +504,13 @@ export default function AdminMenuPage() {
                 />
 
                 <input
-                  type="text"
-                  placeholder="Image URL (optional)"
-                  value={itemForm.imageUrl}
+                  type="file"
+                  accept="image/*"
                   onChange={(e) =>
-                    setItemForm({ ...itemForm, imageUrl: e.target.value })
+                    setItemForm({
+                      ...itemForm,
+                      imageFile: e.target.files?.[0] || null,
+                    })
                   }
                   className="w-full p-2 mb-3 bg-gray-700 rounded text-white"
                 />

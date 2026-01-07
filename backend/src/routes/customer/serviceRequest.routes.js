@@ -1,10 +1,11 @@
 const router = require("express").Router();
 const controller = require("../../controllers/customer/serviceRequest.controller");
+const customerSession = require("../../middleware/customerSession");
 
-// If you want to force only logged-in customers, uncomment:
-// const customerSession = require("../../middleware/customerSession");
-// router.post("/bill", customerSession, controller.requestBill);
+// Existing bill route (keep)
+router.post("/bill", customerSession, controller.requestBill);
 
-router.post("/bill", controller.requestBill);
+// ✅ Generic route (this was crashing before)
+router.post("/", customerSession, controller.createServiceRequest);
 
 module.exports = router;

@@ -27,7 +27,7 @@ export default function AdminLoginPage() {
 
       // ✅ SAVE TOKEN
       localStorage.setItem("adminToken", data.token);
-
+      
       console.log("ADMIN TOKEN SAVED:", data.token);
 
       // ✅ SAVE TOKEN

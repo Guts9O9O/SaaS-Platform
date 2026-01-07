@@ -11,6 +11,15 @@ const getTableSessionKey = (restaurantSlug, tableCode) =>
   `table_auth_${restaurantSlug}_${tableCode}`;
 
 function getItemImage(item) {
+  // 1️⃣ New schema (correct)
+  if (Array.isArray(item?.images) && item.images.length > 0) {
+    const img = item.images[0];
+    // absolute vs relative safety
+    if (img.startsWith("http")) return img;
+    return `${process.env.NEXT_PUBLIC_API_URL}${img}`;
+  }
+
+  // 2️⃣ Legacy fallbacks (keep for safety)
   return (
     item?.imageUrl ||
     item?.image ||
@@ -73,6 +82,8 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
   const joinedOrdersRef = useRef(new Set());
   const [search, setSearch] = useState("");
   const [activeCategoryKey, setActiveCategoryKey] = useState("ALL");
+  const [waiterCalled, setWaiterCalled] = useState(false);
+  const waiterCooldownRef = useRef(null);
 
   useEffect(() => {
     if (!context?.restaurant?.slug) return;
@@ -149,6 +160,44 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
     setLoadingOrders(true);
     refreshTableOrders().finally(() => setLoadingOrders(false));
   }, [activeTab]);
+
+  async function callWaiter() {
+    const payload = {
+      restaurantId: context.restaurant._id || context.restaurant.id,
+      tableId: context.table._id || context.table.id,
+      tableCode: context.table.tableCode,
+      type: "WAITER",
+    };
+
+    const res = await fetch(
+      `${process.env.NEXT_PUBLIC_API_URL}/api/customer/requests`,
+      {
+        method: "POST",
+        credentials: "include",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      }
+    );
+
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(data?.message || "Failed to call waiter");
+    return data;
+  }
+
+  function startWaiterCooldown(ms = 2 * 60 * 1000) {
+    setWaiterCalled(true);
+    if (waiterCooldownRef.current) clearTimeout(waiterCooldownRef.current);
+    waiterCooldownRef.current = setTimeout(() => {
+      setWaiterCalled(false);
+      waiterCooldownRef.current = null;
+    }, ms);
+  }
+
+  useEffect(() => {
+    return () => {
+      if (waiterCooldownRef.current) clearTimeout(waiterCooldownRef.current);
+    };
+  }, []);
 
   async function requestBill() {
     const payload = {
@@ -523,26 +572,51 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
                 )}
               </div>
 
-              <button
-                disabled={billRequested}
-                onClick={async () => {
-                  try {
-                    const ok = window.confirm(`Request the bill for Table ${context.table.tableCode}?`);
-                    if (!ok) return;
-                    await requestBill();
-                    startBillCooldown(2 * 60 * 1000);
-                  } catch (e) {
-                    alert(e?.message || "Failed to request bill");
-                  }
-                }}
-                className={`px-6 py-3 rounded-2xl font-bold transition-all ${
-                  billRequested
-                    ? "bg-emerald-600 text-white"
-                    : "bg-neutral-800/80 text-white border border-neutral-700/60 hover:bg-neutral-800"
-                }`}
-              >
-                {billRequested ? "✓ Bill Requested" : "Request Bill"}
-              </button>
+              <div className="flex gap-2">
+                {/* Call Waiter */}
+                <button
+                  disabled={waiterCalled}
+                  onClick={async () => {
+                    try {
+                      const ok = window.confirm(`Call waiter for Table ${context.table.tableCode}?`);
+                      if (!ok) return;
+                      await callWaiter();
+                      startWaiterCooldown();
+                    } catch (e) {
+                      alert(e?.message || "Failed to call waiter");
+                    }
+                  }}
+                  className={`px-4 py-3 rounded-2xl font-bold transition-all ${
+                    waiterCalled
+                      ? "bg-blue-600 text-white"
+                      : "bg-neutral-800/80 text-white border border-neutral-700/60 hover:bg-neutral-800"
+                  }`}
+                >
+                  {waiterCalled ? "✓ Waiter Called" : "Call Waiter"}
+                </button>
+
+                {/* Request Bill */}
+                <button
+                  disabled={billRequested}
+                  onClick={async () => {
+                    try {
+                      const ok = window.confirm(`Request the bill for Table ${context.table.tableCode}?`);
+                      if (!ok) return;
+                      await requestBill();
+                      startBillCooldown(2 * 60 * 1000);
+                    } catch (e) {
+                      alert(e?.message || "Failed to request bill");
+                    }
+                  }}
+                  className={`px-4 py-3 rounded-2xl font-bold transition-all ${
+                    billRequested
+                      ? "bg-emerald-600 text-white"
+                      : "bg-neutral-800/80 text-white border border-neutral-700/60 hover:bg-neutral-800"
+                  }`}
+                >
+                  {billRequested ? "✓ Bill Requested" : "Request Bill"}
+                </button>
+              </div>
             </div>
           </div>
         )}

@@ -20,7 +20,7 @@ const ServiceRequestSchema = new mongoose.Schema(
     },
     type: {
       type: String,
-      enum: ["BILL"],
+      enum: ["BILL","WAITER"],
       required: true,
       index: true,
     },

@@ -1,5 +1,5 @@
 "use client";
-
+console.log("🔥 LIVE ORDERS PAGE LOADED");
 import { useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { useRouter } from "next/navigation";
@@ -53,10 +53,10 @@ const STATUS_META = {
   PENDING: { label: "PENDING", bg: "#2a1d00", fg: "#ffcc66" },
   ACCEPTED: { label: "ACCEPTED", bg: "#062a14", fg: "#9ff7b3" },
   REJECTED: { label: "REJECTED", bg: "#2a0707", fg: "#ff9e9e" },
-  CANCELLED: { label: "CANCELLED", bg: "#2a0707", fg: "#ff9e9e" },
-  IN_KITCHEN: { label: "IN KITCHEN", bg: "#001f2a", fg: "#7ad9ff" },
-  READY: { label: "READY", bg: "#20122a", fg: "#d7a6ff" },
-  SERVED: { label: "SERVED", bg: "#1b1b1b", fg: "#eaeaea" },
+  // CANCELLED: { label: "CANCELLED", bg: "#2a0707", fg: "#ff9e9e" },
+  // IN_KITCHEN: { label: "IN KITCHEN", bg: "#001f2a", fg: "#7ad9ff" },
+  // READY: { label: "READY", bg: "#20122a", fg: "#d7a6ff" },
+  // SERVED: { label: "SERVED", bg: "#1b1b1b", fg: "#eaeaea" },
 };
 
 function StatusPill({ status }) {
@@ -105,6 +105,8 @@ export default function LiveOrdersPage() {
 
   const refreshTimerRef = useRef(null);
   const socketRef = useRef(null);
+
+  const [waiterCalls, setWaiterCalls] = useState({});
 
   // Keep restaurantId available for helpers/handlers
   const restaurantIdRef = useRef(null);
@@ -173,6 +175,7 @@ export default function LiveOrdersPage() {
       billToastTimerRef.current = null;
     }, 3500);
   };
+  
 
   // Initial load
   useEffect(() => {
@@ -204,9 +207,13 @@ export default function LiveOrdersPage() {
   useEffect(() => {
     const token = getToken();
     const payload = token ? safeDecodeJwtPayload(token) : null;
-    const restaurantId = payload?.restaurantId || null;
+    const restaurantId = payload?.restaurantId || localStorage.getItem("restaurantId") || null;
     restaurantIdRef.current = restaurantId;
-
+console.log(
+          "[ADMIN SOCKET JOIN]",
+          "restaurant_",
+          restaurantId
+        );
     if (!API_BASE) {
       console.warn("NEXT_PUBLIC_API_URL is missing; Socket.IO disabled.");
       return;
@@ -216,6 +223,7 @@ export default function LiveOrdersPage() {
       transports: ["websocket", "polling"],
       withCredentials: true,
       autoConnect: true,
+    
     });
 
     socketRef.current = socket;
@@ -225,6 +233,11 @@ export default function LiveOrdersPage() {
         socket.emit("join_admin_room", { restaurantId });
         // Load any already-pending bill requests so admin sees them even if request happened earlier
         fetchBillRequests(restaurantId);
+        console.log(
+          "[ADMIN SOCKET JOIN]",
+          "restaurant_",
+          restaurantId
+        );
       }
     };
 
@@ -239,15 +252,27 @@ export default function LiveOrdersPage() {
 
     // ✅ NEW: customer bill request event (matches your backend emit)
     const onServiceRequest = ({ request }) => {
-      if (request?.type !== "BILL") return;
+      if (!request) return;
 
-      showBillToast(`Bill requested: Table ${request.tableCode}`);
+      // 🧾 BILL REQUEST
+      if (request.type === "BILL") {
+        showBillToast(`🧾 Bill requested: Table ${request.tableCode}`);
 
-      // Put it into list immediately
-      setBillRequests((prev) => {
-        const exists = prev.some((r) => String(r._id) === String(request._id));
-        return exists ? prev : [request, ...prev];
-      });
+        setBillRequests((prev) => {
+          const exists = prev.some((r) => String(r._id) === String(request._id));
+          return exists ? prev : [request, ...prev];
+        });
+      }
+
+      // 🔔 WAITER CALL
+      if (request.type === "WAITER") {
+        showBillToast(`🔔 Waiter called from Table ${request.tableCode}`);
+
+        setWaiterCalls((prev) => ({
+          ...prev,
+          [request.tableCode]: true,
+        }));
+      }
     };
 
     // ✅ NEW: updates when admin ACK/CLOSE (or future updates)
@@ -473,10 +498,26 @@ export default function LiveOrdersPage() {
             return (
               <div key={t.tableId} style={cardStyle}>
                 <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ fontSize: 16, fontWeight: 700 }}>
-                    Table: <span style={{ color: "#fff" }}>{t.tableCode}</span>
-                  </div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700 }}>
+                      Table: <span style={{ color: "#fff" }}>{t.tableCode}</span>
+                    </div>
 
+                    {waiterCalls[t.tableCode] && (
+                      <span
+                        style={{
+                          background: "#ffcc00",
+                          color: "#000",
+                          padding: "4px 8px",
+                          borderRadius: 999,
+                          fontSize: 12,
+                          fontWeight: 700,
+                        }}
+                      >
+                        🔔 WAITER
+                      </span>
+                    )}
+                  </div>
                   <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }}>
                     <div style={smallMuted}>
                       Open Total: <b style={{ color: "#fff" }}>{formatMoney(t.totalOpenAmount)}</b>
