@@ -6,8 +6,10 @@ import { usePathname } from "next/navigation";
 const navItems = [
   { label: "Live Orders", href: "/admin/live-orders" },
   { label: "Tables", href: "/admin/tables" },
+  { label: "Waiters", href: "/admin/waiters" }, 
   { label: "Menu", href: "/admin/menu" },
   { label: "Revenue", href: "/admin/revenue" },
+  { label: "Customers", href: "/admin/customers" },
   { label: "Requests", href: "/admin/requests" },
 ];
 
@@ -28,9 +30,7 @@ export default function AdminSidebar() {
         <h2 style={{ fontSize: 18, fontWeight: 700, color: "#eaeaea" }}>
           Restaurant Admin
         </h2>
-        <p style={{ fontSize: 12, color: "#a5a5a5" }}>
-          Dashboard
-        </p>
+        <p style={{ fontSize: 12, color: "#a5a5a5" }}>Dashboard</p>
       </div>
 
       {/* Navigation */}

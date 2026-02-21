@@ -49,7 +49,7 @@ export default function QrCodesTab({ restaurantId }) {
         <button
           onClick={generateQrs}
           disabled={loading}
-          className="px-4 py-2 rounded bg-green-700 hover:bg-green-600 disabled:opacity-50"
+          className="px-6 py-3 rounded bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white"
         >
           {loading ? "Generating…" : "Generate QR Codes"}
         </button>
@@ -58,26 +58,22 @@ export default function QrCodesTab({ restaurantId }) {
       {error && <div className="text-red-400">{error}</div>}
 
       {qrs.length === 0 && !loading && (
-        <div className="text-gray-400">
-          No QR codes generated yet.
-        </div>
+        <div className="text-gray-400">No QR codes generated yet.</div>
       )}
 
-      {/* GRID */}
-      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
+      {/* QR Grid */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-6">
         {qrs.map((qr) => (
           <div
             key={qr.tableId}
             className="bg-neutral-900 border border-neutral-800 rounded-lg p-4 text-center"
           >
-            <div className="text-sm font-medium mb-2">
-              Table {qr.tableCode}
-            </div>
+            <div className="text-sm font-medium mb-2">Table {qr.tableCode}</div>
 
             <img
               src={qr.qrDataUrl}
               alt={`QR ${qr.tableCode}`}
-              className="mx-auto mb-3 rounded"
+              className="mx-auto mb-3 rounded shadow-lg"
             />
 
             <a

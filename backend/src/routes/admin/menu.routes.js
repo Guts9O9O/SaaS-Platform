@@ -1,10 +1,11 @@
-// backend/src/routes/adminMenuRoutes.js
 const express = require('express');
 const router = express.Router();
 const MenuCategory = require('../../models/MenuCategory');
 const MenuItem = require('../../models/MenuItem');
 const Restaurant = require('../../models/Restaurant');
 const adminAuth = require('../../middleware/authAdmin');
+const fileUpload = require("../../middleware/fileUpload");
+const fs = require("fs");
 
 /**
  * Helper: resolve restaurantId from req.user or body (SUPER_ADMIN may pass restaurantId)
@@ -16,6 +17,15 @@ const resolveRestaurantId = (req) => {
   return req.user ? req.user.restaurantId : null;
 };
 
+async function getRestaurantVideoCount(restaurantId) {
+  const agg = await MenuItem.aggregate([
+    { $match: { restaurantId: MenuItem.db.base.Types.ObjectId(restaurantId) } },
+    { $project: { videos: { $ifNull: ["$videos", []] } } },
+    { $unwind: { path: "$videos", preserveNullAndEmptyArrays: false } },
+    { $count: "count" },
+  ]);
+  return agg?.[0]?.count || 0;
+}
 /* ---------- CATEGORY ROUTES ---------- */
 
 // Create category
@@ -115,6 +125,7 @@ router.post('/items', adminAuth, async (req, res) => {
       price,
       images = [],
       isAvailable = true,
+      isVeg = true, // ✅ NEW: Accept isVeg field
       variants = [],
       addons = []
     } = req.body;
@@ -127,6 +138,7 @@ router.post('/items', adminAuth, async (req, res) => {
       if (!cat) return res.status(400).json({ message: 'Invalid category for this restaurant' });
     }
 
+    // ✅ FIXED: Include isVeg in the create call
     const item = await MenuItem.create({
       restaurantId,
       categoryId: categoryId || null,
@@ -135,9 +147,12 @@ router.post('/items', adminAuth, async (req, res) => {
       price: Number(price),
       images,
       isAvailable,
+      isVeg: Boolean(isVeg), // ✅ NEW: Save isVeg as boolean
       variants,
       addons
     });
+
+    console.log('✅ Created item with isVeg:', item.isVeg); // ✅ Debug log
 
     return res.json({ success: true, item });
   } catch (err) {
@@ -187,7 +202,8 @@ router.put('/items/:id', adminAuth, async (req, res) => {
     if (!restaurantId) return res.status(400).json({ message: 'restaurantId required' });
 
     const update = {};
-    const fields = ['categoryId','name','description','price','images','isAvailable','variants','addons'];
+    // ✅ FIXED: Added 'isVeg' to the fields array
+    const fields = ['categoryId','name','description','price','images','isAvailable','isVeg','variants','addons'];
     fields.forEach(k => { if (req.body[k] !== undefined) update[k] = req.body[k]; });
 
     // if categoryId provided, validate
@@ -215,12 +231,85 @@ router.delete('/items/:id', adminAuth, async (req, res) => {
   try {
     const restaurantId = resolveRestaurantId(req);
     const deleted = await MenuItem.findOneAndDelete({ _id: req.params.id, restaurantId });
-    if (!deleted) return res.status(404).json({ message: 'Item not found' });
+    if (!deleted) return res.status(404).json({ message: 'Item deleted', item: deleted });
     return res.json({ success: true, message: 'Item deleted', item: deleted });
   } catch (err) {
     console.error('Delete item error:', err);
     return res.status(500).json({ message: 'Server error' });
   }
 });
+
+// Route to handle video uploads for menu items
+router.post(
+  "/items/:itemId/upload-video",
+  adminAuth,
+  fileUpload.single("video"),
+  async (req, res) => {
+    try {
+      const restaurantId = resolveRestaurantId(req);
+      if (!restaurantId) return res.status(400).json({ message: "restaurantId required" });
+
+      const { itemId } = req.params;
+
+      if (!req.file) {
+        return res.status(400).json({ message: "No video file uploaded" });
+      }
+
+      // ✅ fetch restaurant limits
+      const restaurant = await Restaurant.findById(restaurantId)
+        .select("restaurantVideoLimit menuItemVideoLimit isActive")
+        .lean();
+
+      if (!restaurant || restaurant.isActive === false) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(404).json({ message: "Restaurant not found/inactive" });
+      }
+
+      // ✅ validate item belongs to restaurant
+      const item = await MenuItem.findOne({ _id: itemId, restaurantId });
+      if (!item) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(404).json({ message: "Menu item not found" });
+      }
+
+      // ensure field exists
+      if (!Array.isArray(item.videos)) item.videos = [];
+
+      // ✅ per-item limit check
+      const perItemLimit = Number(restaurant.menuItemVideoLimit ?? 0);
+      if (perItemLimit >= 0 && item.videos.length >= perItemLimit) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(403).json({
+          message: `Menu item video limit reached (${perItemLimit}). Contact Super Admin to increase limit.`,
+        });
+      }
+
+      // ✅ restaurant total limit check
+      const restaurantLimit = Number(restaurant.restaurantVideoLimit ?? 0);
+      const currentTotal = await getRestaurantVideoCount(restaurantId);
+
+      if (restaurantLimit >= 0 && currentTotal >= restaurantLimit) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+        return res.status(403).json({
+          message: `Restaurant video limit reached (${restaurantLimit}). Contact Super Admin to increase limit.`,
+        });
+      }
+
+      // URL that frontend can access
+      const videoUrl = `/uploads/menu-videos/${req.file.filename}`;
+
+      item.videos.push(videoUrl);
+      await item.save();
+
+      return res.status(201).json({ success: true, videoUrl, item });
+    } catch (err) {
+      console.error("Upload video error:", err);
+      if (req.file?.path) {
+        try { fs.unlinkSync(req.file.path); } catch {}
+      }
+      return res.status(500).json({ message: err.message || "Server error" });
+    }
+  }
+);
 
 module.exports = router;

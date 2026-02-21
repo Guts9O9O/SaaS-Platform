@@ -1,4 +1,6 @@
-// backend/src/server.js
+// add at top of server.js
+const jwt = require("jsonwebtoken");
+const User = require("./models/User");
 const express = require('express');
 const cors = require('cors');
 const cookieParser = require('cookie-parser');
@@ -46,8 +48,13 @@ app.use("/api/customer/requests", require("./routes/customer/serviceRequest.rout
 
 // admin bill/service requests
 app.use("/api/admin/requests", require("./routes/admin/serviceRequest.routes"));
-
+app.use("/api/admin/analytics", require("./routes/admin/customerAnalytics.routes"));
 app.use("/api/admin/super-admin", require("./routes/admin/superAdmin.routes"));
+
+app.use("/api/admin/staff", require("./routes/admin/staff.routes"));
+
+app.use("/api/waiter/auth", require("./routes/waiter/auth.routes"));
+app.use("/api/waiter/tables", require("./routes/waiter/table.routes"));
 
 // simple health
 app.get('/', (req, res) => res.send('QR Menu Backend is running (with sockets)'));
@@ -85,6 +92,50 @@ io.on('connection', (socket) => {
       console.log(`Socket ${socket.id} joined ${room}`);
     }
   });
+
+    // ✅ SECURE: admin joins by token (recommended)
+  socket.on("join_admin_room_secure", async ({ token }) => {
+    try {
+      if (!token) return;
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      if (!decoded?.userId) return;
+
+      const user = await User.findById(decoded.userId).select("_id role restaurantId");
+      if (!user) return;
+
+      if (!["SUPER_ADMIN", "RESTAURANT_ADMIN"].includes(user.role)) return;
+      if (user.role === "RESTAURANT_ADMIN" && !user.restaurantId) return;
+
+      const room = `restaurant_${user.restaurantId}`;
+      socket.join(room);
+      console.log(`Socket ${socket.id} joined ${room} (secure admin)`);
+    } catch (e) {
+      console.log("join_admin_room_secure error:", e.message);
+    }
+  });
+
+  // ✅ NEW: waiter joins their own room by token
+  socket.on("join_waiter_room", async ({ token }) => {
+    try {
+      if (!token) return;
+
+      const decoded = jwt.verify(token, process.env.JWT_SECRET);
+      if (!decoded?.userId) return;
+
+      const user = await User.findById(decoded.userId).select("_id role restaurantId");
+      if (!user) return;
+
+      if (user.role !== "STAFF") return;
+
+      const room = `waiter_${user._id}`;
+      socket.join(room);
+      console.log(`Socket ${socket.id} joined ${room} (waiter)`);
+    } catch (e) {
+      console.log("join_waiter_room error:", e.message);
+    }
+  });
+
 
   socket.on('leave_admin_room', ({ restaurantId }) => {
     if (restaurantId) {

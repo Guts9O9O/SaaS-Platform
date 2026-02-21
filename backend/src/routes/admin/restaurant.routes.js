@@ -4,7 +4,8 @@ const {
   createRestaurant,
   getAllRestaurants,
   updateRestaurant,
-  updateRestaurantStatus
+  updateRestaurantStatus,
+  updateRestaurantLimits,
 } = require("../../controllers/admin/restaurant.controller");
 
 const authAdmin = require("../../middleware/authAdmin");
@@ -15,5 +16,5 @@ router.post("/", createRestaurant);
 router.get("/", getAllRestaurants);
 router.patch("/:id", updateRestaurant);
 router.patch("/:id/status", updateRestaurantStatus);
-
+router.patch("/:id/limits", updateRestaurantLimits);
 module.exports = router;

@@ -1,0 +1,108 @@
+Folder PATH listing for volume Acer
+Volume serial number is 1A6F-32A8
+C:\CHINMAY\PROJECT\QR-MENU-APP\BACKEND\SRC
+¦   assignRestaurantToUser.js
+¦   resetAdminPassword.js
+¦   seed.js
+¦   seedAdmin.js
+¦   server.js
+¦   
++---config
+¦       db.js
+¦       
++---controllers
+¦   +---admin
+¦   ¦       auth.controller.js
+¦   ¦       billing.controller.js
+¦   ¦       customerAnalytics.controller.js
+¦   ¦       menuCategory.controller.js
+¦   ¦       menuItem.controller.js
+¦   ¦       order.controller.js
+¦   ¦       qr.controller.js
+¦   ¦       restaurant.controller.js
+¦   ¦       revenue.controller.js
+¦   ¦       serviceRequest.controller.js
+¦   ¦       staff.controller.js
+¦   ¦       superAdmin.controller.js
+¦   ¦       table.controller.js
+¦   ¦       tableAssign.controller.js
+¦   ¦       
+¦   +---customer
+¦   ¦       auth.controller.js
+¦   ¦       menuContext.controller.js
+¦   ¦       menuPublic.controller.js
+¦   ¦       order.controller.js
+¦   ¦       serviceRequest.controller.js
+¦   ¦       session.controller.js
+¦   ¦       
+¦   +---waiter
+¦           auth.controller.js
+¦           table.controller.js
+¦           
++---middleware
+¦       authAdmin.js
+¦       authSuperAdmin.js
+¦       authWaiter.js
+¦       customerSession.js
+¦       fileUpload.js
+¦       restaurantGuard.js
+¦       
++---models
+¦       Bill.js
+¦       Customer.js
+¦       CustomerOtp.js
+¦       CustomerSession.js
+¦       MenuCategory.js
+¦       MenuItem.js
+¦       Order.js
+¦       OtpLog.js
+¦       Restaurant.js
+¦       ServiceRequest.js
+¦       Table.js
+¦       User.js
+¦       
++---routes
+¦   ¦   menuRoutes.js
+¦   ¦   otpRoutes.js
+¦   ¦   publicRestaurantRoutes.js
+¦   ¦   
+¦   +---admin
+¦   ¦       auth.routes.js
+¦   ¦       billing.routes.js
+¦   ¦       customerAnalytics.routes.js
+¦   ¦       menu.routes.js
+¦   ¦       menuCategory.routes.js
+¦   ¦       menuItem.routes.js
+¦   ¦       order.routes.js
+¦   ¦       qr.routes.js
+¦   ¦       restaurant.routes.js
+¦   ¦       revenue.routes.js
+¦   ¦       serviceRequest.routes.js
+¦   ¦       staff.routes.js
+¦   ¦       superAdmin.routes.js
+¦   ¦       superAdminAuth.routes.js
+¦   ¦       table.routes.js
+¦   ¦       upload.routes.js
+¦   ¦       
+¦   +---customer
+¦   ¦       auth.routes.js
+¦   ¦       menuContext.routes.js
+¦   ¦       menuPublic.routes.js
+¦   ¦       order.routes.js
+¦   ¦       serviceRequest.routes.js
+¦   ¦       session.routes.js
+¦   ¦       
+¦   +---waiter
+¦           auth.routes.js
+¦           table.routes.js
+¦           
++---scripts
+¦       createAdmin.js
+¦       resetDev.js
+¦       
++---utils
+        qrGenerator.js
+        smsProvider.js
+        socket.js
+        upload.js
+        

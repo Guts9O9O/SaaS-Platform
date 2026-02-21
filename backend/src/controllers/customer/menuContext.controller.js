@@ -41,6 +41,8 @@ exports.getMenuContext = async (req, res) => {
     const items = await MenuItem.find({
       restaurantId: restaurant._id,
       isActive: true,
+      // if you use isAvailable in schema, this will work too:
+      // isAvailable: true,
     }).lean();
 
     const menu = categories.map((category) => ({
@@ -58,6 +60,8 @@ exports.getMenuContext = async (req, res) => {
           description: item.description || "",
           price: item.price,
           images: item.images || [],
+          videos: item.videos || [],       // ✅ ADD THIS
+          isVeg: item.isVeg ?? true,       // ✅ optional but useful
           variants: item.variants || [],
         })),
     }));

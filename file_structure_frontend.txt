@@ -1,0 +1,115 @@
+Folder PATH listing for volume Acer
+Volume serial number is 1A6F-32A8
+C:\CHINMAY\PROJECT\QR-MENU-APP\FRONTEND\SRC
++---app
+¦   ¦   favicon.ico
+¦   ¦   globals.css
+¦   ¦   layout.js
+¦   ¦   page.js
+¦   ¦   
+¦   +---admin
+¦   ¦   ¦   layout.js
+¦   ¦   ¦   page.js
+¦   ¦   ¦   
+¦   ¦   +---components
+¦   ¦   ¦       AdminSidebar.js
+¦   ¦   ¦       AdminTopbar.js
+¦   ¦   ¦       
+¦   ¦   +---customers
+¦   ¦   ¦       page.js
+¦   ¦   ¦       
+¦   ¦   +---live-orders
+¦   ¦   ¦       page.js
+¦   ¦   ¦       
+¦   ¦   +---login
+¦   ¦   ¦       page.js
+¦   ¦   ¦       
+¦   ¦   +---menu
+¦   ¦   ¦       page.js
+¦   ¦   ¦       
+¦   ¦   +---orders
+¦   ¦   ¦       page.js
+¦   ¦   ¦       
+¦   ¦   +---requests
+¦   ¦   ¦       page.js
+¦   ¦   ¦       
+¦   ¦   +---restaurants
+¦   ¦   ¦       page.js
+¦   ¦   ¦       
+¦   ¦   +---revenue
+¦   ¦   ¦       page.js
+¦   ¦   ¦       
+¦   ¦   +---super-admin
+¦   ¦   ¦       page.js
+¦   ¦   ¦       
+¦   ¦   +---super-admin-login
+¦   ¦   ¦       page.js
+¦   ¦   ¦       
+¦   ¦   +---tables
+¦   ¦   ¦       page.js
+¦   ¦   ¦       
+¦   ¦   +---waiters
+¦   ¦           page.js
+¦   ¦           
+¦   +---components
+¦   ¦       BillHistoryPanel.js
+¦   ¦       BillingHistoryModal.js
+¦   ¦       BillingModal.js
+¦   ¦       Cart.js
+¦   ¦       CartDrawer.js
+¦   ¦       CustomerAuth.js
+¦   ¦       RevenueSummaryPanel.js
+¦   ¦       RevenueTrendPanel.js
+¦   ¦       TopItemsPanel.js
+¦   ¦       
+¦   +---r
+¦   ¦   +---[restaurantSlug]
+¦   ¦       +---t
+¦   ¦           +---[tableCode]
+¦   ¦               ¦   ClientMenu.js
+¦   ¦               ¦   page.js
+¦   ¦               ¦   
+¦   ¦               +---hooks
+¦   ¦                       useMenuContext.js
+¦   ¦                       
+¦   +---super-admin
+¦   ¦   ¦   layout.js
+¦   ¦   ¦   page.js
+¦   ¦   ¦   
+¦   ¦   +---login
+¦   ¦   ¦       page.js
+¦   ¦   ¦       
+¦   ¦   +---restaurants
+¦   ¦       ¦   page.js
+¦   ¦       ¦   
+¦   ¦       +---[restaurantId]
+¦   ¦           ¦   page.js
+¦   ¦           ¦   
+¦   ¦           +---components
+¦   ¦                   AdminTab.js
+¦   ¦                   OverviewTab.js
+¦   ¦                   QrCodesTab.js
+¦   ¦                   SubscriptionTab.js
+¦   ¦                   TablesTab.js
+¦   ¦                   
+¦   +---waiter
+¦       +---dashboard
+¦       ¦       page.js
+¦       ¦       
+¦       +---login
+¦               page.js
+¦               
++---components
+¦   +---ui
+¦           badge.jsx
+¦           button.jsx
+¦           card.jsx
+¦           input.jsx
+¦           separator.jsx
+¦           tabs.jsx
+¦           
++---lib
+        api.js
+        auth.js
+        utils.js
+        

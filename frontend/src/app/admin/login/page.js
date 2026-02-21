@@ -27,11 +27,17 @@ export default function AdminLoginPage() {
 
       // ✅ SAVE TOKEN
       localStorage.setItem("adminToken", data.token);
-      
       console.log("ADMIN TOKEN SAVED:", data.token);
 
-      // ✅ SAVE TOKEN
-      localStorage.setItem("adminToken", data.token);
+      // ✅ SAVE restaurantId (required for joining socket room)
+      if (data?.user?.restaurantId) {
+        localStorage.setItem("restaurantId", data.user.restaurantId);
+      } else {
+        localStorage.removeItem("restaurantId");
+      }
+
+      // (optional but useful)
+      localStorage.setItem("adminUser", JSON.stringify(data.user));
 
       // ✅ Redirect based on role
       if (data?.user?.role === "SUPER_ADMIN") {

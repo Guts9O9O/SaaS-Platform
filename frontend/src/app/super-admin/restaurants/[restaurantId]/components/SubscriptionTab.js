@@ -19,7 +19,7 @@ export default function SubscriptionTab({ restaurantId }) {
         const token = localStorage.getItem("superAdminToken");
 
         const res = await fetch(
-          `${process.env.NEXT_PUBLIC_API_URL}/api/admin/super-admin/restaurants`,
+          `${process.env.NEXT_PUBLIC_API_URL}/api/admin/super-admin/restaurants/${restaurantId}`,
           {
             headers: {
               Authorization: `Bearer ${token}`,
@@ -96,7 +96,7 @@ export default function SubscriptionTab({ restaurantId }) {
         <select
           value={plan}
           onChange={(e) => setPlan(e.target.value)}
-          className="w-full p-2 rounded bg-neutral-800 border border-neutral-700"
+          className="w-full p-3 rounded-lg bg-neutral-800 text-white border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           {PLANS.map((p) => (
             <option key={p} value={p}>
@@ -108,13 +108,11 @@ export default function SubscriptionTab({ restaurantId }) {
 
       {/* STATUS */}
       <div>
-        <label className="block text-sm text-gray-400 mb-1">
-          Subscription Status
-        </label>
+        <label className="block text-sm text-gray-400 mb-1">Subscription Status</label>
         <select
           value={status}
           onChange={(e) => setStatus(e.target.value)}
-          className="w-full p-2 rounded bg-neutral-800 border border-neutral-700"
+          className="w-full p-3 rounded-lg bg-neutral-800 text-white border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
         >
           {STATUSES.map((s) => (
             <option key={s} value={s}>
@@ -127,7 +125,7 @@ export default function SubscriptionTab({ restaurantId }) {
       <button
         onClick={saveSubscription}
         disabled={saving}
-        className="px-4 py-2 rounded bg-green-700 hover:bg-green-600 disabled:opacity-50"
+        className="w-full px-6 py-3 rounded-lg bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white"
       >
         {saving ? "Saving…" : "Save Changes"}
       </button>

@@ -48,6 +48,20 @@ const RestaurantSchema = new mongoose.Schema(
       default: "FREE",
     },
 
+    menuItemVideoLimit: {
+      type: Number,
+      default: 1,
+      min: 0,
+      max: 10,
+    },
+
+    restaurantVideoLimit: {
+      type: Number,
+      default: 2,
+      min: 0,
+      max: 20,
+    },
+
     /* -------- SYSTEM -------- */
     isActive: {
       type: Boolean,

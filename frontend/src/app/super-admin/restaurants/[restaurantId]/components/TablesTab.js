@@ -67,7 +67,7 @@ export default function TablesTab({ restaurantId }) {
             min="1"
             value={count}
             onChange={(e) => setCount(e.target.value)}
-            className="w-full p-2 rounded bg-neutral-800 border border-neutral-700"
+            className="w-full p-3 rounded-lg bg-neutral-800 text-white placeholder-gray-400 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
 
@@ -78,7 +78,7 @@ export default function TablesTab({ restaurantId }) {
           <input
             value={prefix}
             onChange={(e) => setPrefix(e.target.value.toUpperCase())}
-            className="w-full p-2 rounded bg-neutral-800 border border-neutral-700"
+            className="w-full p-3 rounded-lg bg-neutral-800 text-white placeholder-gray-400 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
             placeholder="T"
           />
         </div>
@@ -92,16 +92,16 @@ export default function TablesTab({ restaurantId }) {
             min="1"
             value={startFrom}
             onChange={(e) => setStartFrom(e.target.value)}
-            className="w-full p-2 rounded bg-neutral-800 border border-neutral-700"
+            className="w-full p-3 rounded-lg bg-neutral-800 text-white placeholder-gray-400 border border-neutral-700 focus:outline-none focus:ring-2 focus:ring-blue-500"
           />
         </div>
       </div>
 
-      {/* ACTION */}
+      {/* ACTION BUTTON */}
       <button
         onClick={createTables}
         disabled={loading}
-        className="px-4 py-2 rounded bg-green-700 hover:bg-green-600 disabled:opacity-50"
+        className="w-full px-6 py-3 rounded-lg bg-green-700 hover:bg-green-600 disabled:opacity-50 text-white"
       >
         {loading ? "Creating…" : "Create Tables"}
       </button>
@@ -118,6 +118,7 @@ export default function TablesTab({ restaurantId }) {
         </div>
       )}
 
+      {/* ERROR MESSAGE */}
       {error && <div className="text-red-400">{error}</div>}
     </div>
   );

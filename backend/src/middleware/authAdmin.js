@@ -52,3 +52,54 @@ module.exports = async function authAdmin(req, res, next) {
     return res.status(401).json({ message: "Unauthorized" });
   }
 };
+const authAdmin = async (req, res, next) => {
+  try {
+    const header = req.headers.authorization || "";
+    const token = header.startsWith("Bearer ") ? header.slice(7) : null;
+
+    if (!token) {
+      console.log("[authAdmin] No token provided");
+      return res.status(401).json({ message: "No token provided" });
+    }
+
+    console.log("[authAdmin] Token received:", token.slice(0, 20)); // Log token for debugging purposes
+
+    const decoded = jwt.verify(token, process.env.JWT_SECRET);
+
+    if (!decoded?.userId) {
+      console.log("[authAdmin] Invalid token payload");
+      return res.status(401).json({ message: "Invalid token payload" });
+    }
+
+    const user = await User.findById(decoded.userId).select("_id role restaurantId email name");
+
+    if (!user) {
+      console.log("[authAdmin] User not found");
+      return res.status(401).json({ message: "Invalid token user" });
+    }
+
+    if (!["SUPER_ADMIN", "RESTAURANT_ADMIN"].includes(user.role)) {
+      console.log("[authAdmin] Forbidden: Only SUPER_ADMIN or RESTAURANT_ADMIN allowed");
+      return res.status(403).json({ message: "Forbidden" });
+    }
+
+    if (user.role === "RESTAURANT_ADMIN" && !user.restaurantId) {
+      console.log("[authAdmin] Restaurant context missing for RESTAURANT_ADMIN");
+      return res.status(403).json({ message: "Restaurant context missing" });
+    }
+
+    req.user = user;
+    req.restaurantId = user.restaurantId;
+
+    req.admin = {
+      userId: user._id,
+      role: user.role,
+      restaurantId: user.restaurantId
+    };
+
+    next();
+  } catch (err) {
+    console.error("[authAdmin ERROR]:", err.message);
+    return res.status(401).json({ message: "Unauthorized" });
+  }
+};

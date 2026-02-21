@@ -100,6 +100,7 @@ export default function LiveOrdersPage() {
 
   // ✅ Bill requests state (NEW)
   const [billRequests, setBillRequests] = useState([]);
+  const [waiterRequests, setWaiterRequests] = useState([]);
   const [billToast, setBillToast] = useState("");
   const billToastTimerRef = useRef(null);
 
@@ -152,6 +153,18 @@ export default function LiveOrdersPage() {
     } catch (e) {
       console.error("Failed to fetch bill requests:", e?.message || e);
       // Don't break page if this fails
+    }
+  };
+
+  const fetchWaiterRequests = async (restaurantId) => {
+    if (!restaurantId) return;
+    try {
+      const data = await apiFetch(
+        `/api/admin/requests?status=OPEN&type=WAITER&restaurantId=${restaurantId}`
+      );
+      setWaiterRequests(Array.isArray(data?.requests) ? data.requests : []);
+    } catch (e) {
+      console.error("Failed to fetch waiter requests:", e?.message || e);
     }
   };
 
@@ -209,6 +222,9 @@ export default function LiveOrdersPage() {
     const payload = token ? safeDecodeJwtPayload(token) : null;
     const restaurantId = payload?.restaurantId || localStorage.getItem("restaurantId") || null;
     restaurantIdRef.current = restaurantId;
+    console.log("[ADMIN SOCKET] token exists:", !!token);
+console.log("[ADMIN SOCKET] decoded payload:", payload);
+console.log("[ADMIN SOCKET] restaurantId used:", restaurantId);
 console.log(
           "[ADMIN SOCKET JOIN]",
           "restaurant_",
@@ -229,15 +245,19 @@ console.log(
     socketRef.current = socket;
 
     const onConnect = () => {
+      // ✅ always join using token (no need restaurantId in JWT)
+      if (token) {
+        socket.emit("join_admin_room_secure", { token });
+        console.log("[ADMIN SOCKET JOIN SECURE] token-based join sent");
+      }
+
+      // ✅ keep these fetches (they need restaurantId for filtering)
       if (restaurantId) {
-        socket.emit("join_admin_room", { restaurantId });
-        // Load any already-pending bill requests so admin sees them even if request happened earlier
         fetchBillRequests(restaurantId);
-        console.log(
-          "[ADMIN SOCKET JOIN]",
-          "restaurant_",
-          restaurantId
-        );
+        fetchWaiterRequests(restaurantId);
+        console.log("[ADMIN REQUEST FETCH]", `restaurant_${restaurantId}`);
+      } else {
+        console.warn("[ADMIN] restaurantId missing for requests fetch (not critical for live orders)");
       }
     };
 
@@ -268,6 +288,11 @@ console.log(
       if (request.type === "WAITER") {
         showBillToast(`🔔 Waiter called from Table ${request.tableCode}`);
 
+        setWaiterRequests((prev) => {
+          const exists = prev.some((r) => String(r._id) === String(request._id));
+          return exists ? prev : [request, ...prev];
+        });
+
         setWaiterCalls((prev) => ({
           ...prev,
           [request.tableCode]: true,
@@ -293,6 +318,9 @@ console.log(
 
     socket.on("connect", onConnect);
     socket.on("order_updated", onOrderUpdated);
+
+    socket.on("order:updated", onOrderUpdated);
+    socket.on("order:created", onOrderUpdated);
     socket.on("billing_closed", onBillingClosed);
 
     socket.on("service_request", onServiceRequest);
@@ -302,12 +330,21 @@ console.log(
 
     return () => {
       try {
+        // optional: keep old leave (not required for secure join)
         if (restaurantId) socket.emit("leave_admin_room", { restaurantId });
+
         socket.off("connect", onConnect);
+
+        // ✅ OFF for all order events you listen to
         socket.off("order_updated", onOrderUpdated);
+        socket.off("order:updated", onOrderUpdated);
+        socket.off("order:created", onOrderUpdated);
+
         socket.off("billing_closed", onBillingClosed);
+
         socket.off("service_request", onServiceRequest);
         socket.off("service_request_update", onServiceRequestUpdate);
+
         socket.off("connect_error", onConnectError);
         socket.disconnect();
       } catch {}
@@ -361,6 +398,26 @@ console.log(
       await fetchBillRequests(restaurantIdRef.current);
     } catch (e) {
       setErr(e.message || "Failed to close bill request");
+    }
+  };
+
+  const ackWaiterRequest = async (id) => {
+    try {
+      setErr("");
+      await apiFetch(`/api/admin/requests/${id}/ack`, { method: "PATCH" });
+      await fetchWaiterRequests(restaurantIdRef.current);
+    } catch (e) {
+      setErr(e.message || "Failed to acknowledge waiter request");
+    }
+  };
+
+  const closeWaiterRequest = async (id) => {
+    try {
+      setErr("");
+      await apiFetch(`/api/admin/requests/${id}/close`, { method: "PATCH" });
+      await fetchWaiterRequests(restaurantIdRef.current);
+    } catch (e) {
+      setErr(e.message || "Failed to close waiter request");
     }
   };
 
@@ -478,6 +535,60 @@ console.log(
                     Acknowledge
                   </button>
                   <button style={btnDanger} onClick={() => closeBillRequest(r._id)}>
+                    Close
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      ) : null}
+
+      {waiterRequests.length > 0 ? (
+        <div style={{ ...cardStyle, marginBottom: 12 }}>
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
+            <div style={{ fontSize: 16, fontWeight: 700 }}>
+              Waiter Calls <span style={{ ...smallMuted }}>({waiterRequests.length} pending)</span>
+            </div>
+
+            <button
+              style={btnStyle}
+              onClick={() => fetchWaiterRequests(restaurantIdRef.current)}
+              title="Reload waiter calls"
+            >
+              Reload
+            </button>
+          </div>
+
+          <div style={{ height: 10 }} />
+
+          <div style={{ display: "grid", gap: 10 }}>
+            {waiterRequests.slice(0, 10).map((r) => (
+              <div
+                key={r._id}
+                style={{
+                  border: "1px solid #262626",
+                  borderRadius: 12,
+                  padding: 12,
+                  background: "#0f0f0f",
+                  display: "flex",
+                  alignItems: "center",
+                  justifyContent: "space-between",
+                  gap: 12,
+                }}
+              >
+                <div>
+                  <div style={{ fontSize: 14, fontWeight: 700 }}>
+                    Table: <span style={{ color: "#fff" }}>{r.tableCode}</span>
+                  </div>
+                  <div style={smallMuted}>Requested: {new Date(r.createdAt).toLocaleString()}</div>
+                </div>
+
+                <div style={{ display: "flex", gap: 10 }}>
+                  <button style={btnOk} onClick={() => ackWaiterRequest(r._id)}>
+                    Acknowledge
+                  </button>
+                  <button style={btnDanger} onClick={() => closeWaiterRequest(r._id)}>
                     Close
                   </button>
                 </div>

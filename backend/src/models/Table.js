@@ -1,3 +1,4 @@
+// backend/src/models/Table.js
 const mongoose = require("mongoose");
 
 const TableSchema = new mongoose.Schema(
@@ -14,6 +15,13 @@ const TableSchema = new mongoose.Schema(
       required: true,
     },
 
+    assignedWaiterId: {
+      type: mongoose.Schema.Types.ObjectId,
+      ref: "User",
+      default: null,
+      index: true,
+    },
+
     isActive: {
       type: Boolean,
       default: true,
@@ -25,5 +33,4 @@ const TableSchema = new mongoose.Schema(
 /* Unique table per restaurant */
 TableSchema.index({ restaurantId: 1, tableCode: 1 }, { unique: true });
 
-module.exports = mongoose.models.Table||
-  mongoose.model("Table", TableSchema);
+module.exports = mongoose.models.Table || mongoose.model("Table", TableSchema);

@@ -10,7 +10,7 @@ export default function AdminLayout({ children }) {
   const router = useRouter();
 
   useEffect(() => {
-    fetch("http://localhost:4000/api/admin/me", {
+    fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/me`, {
       headers: {
         Authorization: `Bearer ${localStorage.getItem("adminToken")}`,
       },
