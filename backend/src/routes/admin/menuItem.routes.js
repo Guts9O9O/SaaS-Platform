@@ -1,21 +1,19 @@
 const express = require("express");
 const router = express.Router();
 const authAdmin = require("../../middleware/authAdmin");
+const upload = require("../../middleware/fileUpload");
 const controller = require("../../controllers/admin/menuItem.controller");
 
-// Protect all menu item routes
 router.use(authAdmin);
 
-// Create menu item
 router.post("/", controller.createItem);
-
-// Get menu items (optionally by category)
 router.get("/", controller.getItems);
-
-// Update menu item
 router.patch("/:id", controller.updateItem);
-
-// Delete menu item
 router.delete("/:id", controller.deleteItem);
+
+// ✅ FIX: Video upload route — was completely missing
+// upload.array("videos", 10) puts files in req.files
+// matches the controller's const { files } = req
+router.post("/:itemId/videos", upload.array("videos", 10), controller.uploadMenuItemVideo);
 
 module.exports = router;

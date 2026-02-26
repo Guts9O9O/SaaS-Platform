@@ -2,8 +2,6 @@ const bcrypt = require("bcryptjs");
 const jwt = require("jsonwebtoken");
 const User = require("../../models/User");
 
-const JWT_SECRET = process.env.JWT_SECRET || "replace_this_secret";
-
 exports.login = async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -12,12 +10,23 @@ exports.login = async (req, res) => {
       return res.status(400).json({ message: "Email and password required" });
     }
 
-    const user = await User.findOne({ email });
+    // ✅ FIX: No hardcoded secret fallback — fail loudly if JWT_SECRET missing
+    if (!process.env.JWT_SECRET) {
+      console.error("[ADMIN LOGIN] FATAL: JWT_SECRET not set in environment");
+      return res.status(500).json({ message: "Server misconfiguration" });
+    }
+
+    const user = await User.findOne({ email: email.toLowerCase().trim() });
     if (!user) {
       return res.status(401).json({ message: "Invalid credentials" });
     }
 
-    // ✅ CRITICAL: compare against passwordHash
+    // ✅ FIX: Only RESTAURANT_ADMIN and SUPER_ADMIN can log in here.
+    // STAFF (waiters) use /api/waiter/auth/login instead.
+    if (!["RESTAURANT_ADMIN", "SUPER_ADMIN"].includes(user.role)) {
+      return res.status(403).json({ message: "Invalid credentials" });
+    }
+
     const isMatch = await bcrypt.compare(password, user.passwordHash);
     if (!isMatch) {
       return res.status(401).json({ message: "Invalid credentials" });
@@ -29,7 +38,7 @@ exports.login = async (req, res) => {
         role: user.role,
         restaurantId: user.restaurantId,
       },
-      JWT_SECRET,
+      process.env.JWT_SECRET,
       { expiresIn: "7d" }
     );
 
@@ -37,6 +46,7 @@ exports.login = async (req, res) => {
       token,
       user: {
         id: user._id,
+        name: user.name,
         email: user.email,
         role: user.role,
         restaurantId: user.restaurantId,

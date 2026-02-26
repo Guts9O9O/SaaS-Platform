@@ -1,36 +1,32 @@
 const bcrypt = require("bcryptjs");
 const Customer = require("../../models/Customer");
 const CustomerOtp = require("../../models/CustomerOtp");
+const { sendOtp, normalizeIndianPhone } = require("../../utils/smsProvider");
 
-/**
- * DEV-SMS: For now we log OTP to console.
- * PROD: Replace sendOtpDev() with Twilio/MSG91/etc.
- */
-function sendOtpDev(phone, otp) {
-  console.log(`📨 OTP for ${phone}: ${otp}`);
-}
-
+// ✅ FIX: Use the shared normalizer from smsProvider so phone format
+// is always consistent between OTP creation and lookup
 function normalizePhone(phone) {
-  return String(phone || "").replace(/\s+/g, "").trim();
+  return normalizeIndianPhone(phone);
 }
 
 function generateOtp() {
-  return String(Math.floor(100000 + Math.random() * 900000)); // 6 digits
+  return String(Math.floor(100000 + Math.random() * 900000));
 }
 
 exports.requestOtp = async (req, res) => {
   try {
     const session = req.customerSession;
     const { phone, purpose } = req.body;
-
     const p = normalizePhone(phone);
-    if (!p) return res.status(400).json({ message: "Phone is required" });
 
+    if (!p || p.length !== 10) {
+      return res.status(400).json({ message: "Valid 10-digit phone number is required" });
+    }
     if (!["LOGIN", "REGISTER"].includes(purpose)) {
       return res.status(400).json({ message: "Invalid purpose" });
     }
 
-    // basic rate-limit: delete old active OTPs for same phone/purpose/session
+    // Rate limit: max 1 active OTP per phone+purpose+session
     await CustomerOtp.deleteMany({
       restaurantId: session.restaurantId,
       phone: p,
@@ -38,19 +34,29 @@ exports.requestOtp = async (req, res) => {
       sessionId: session.sessionId,
     });
 
-    // For LOGIN, ensure customer exists (better UX)
+    // For LOGIN: ensure customer exists
     if (purpose === "LOGIN") {
-      const existing = await Customer.findOne({ restaurantId: session.restaurantId, phone: p });
+      const existing = await Customer.findOne({
+        restaurantId: session.restaurantId,
+        phone: p,
+      });
       if (!existing) {
-        return res.status(404).json({ message: "Account not found. Please register." });
+        return res.status(404).json({
+          message: "No account found. Please register first.",
+        });
       }
     }
 
-    // For REGISTER, if already exists -> suggest login
+    // For REGISTER: if already exists, suggest login
     if (purpose === "REGISTER") {
-      const existing = await Customer.findOne({ restaurantId: session.restaurantId, phone: p });
+      const existing = await Customer.findOne({
+        restaurantId: session.restaurantId,
+        phone: p,
+      });
       if (existing) {
-        return res.status(409).json({ message: "Account already exists. Please login." });
+        return res.status(409).json({
+          message: "Account already exists. Please login instead.",
+        });
       }
     }
 
@@ -67,9 +73,22 @@ exports.requestOtp = async (req, res) => {
       sessionId: session.sessionId,
     });
 
-    sendOtpDev(p, otp);
+    // ✅ FIX: Send real SMS via Fast2SMS instead of just console.log
+    const smsResult = await sendOtp(p, otp);
+    if (!smsResult.success && !smsResult.dev) {
+      // OTP was created in DB but SMS failed — clean it up
+      await CustomerOtp.deleteMany({
+        restaurantId: session.restaurantId,
+        phone: p,
+        purpose,
+        sessionId: session.sessionId,
+      });
+      return res.status(500).json({
+        message: "Failed to send OTP. Please try again.",
+      });
+    }
 
-    return res.json({ message: "OTP sent" });
+    return res.json({ message: "OTP sent successfully" });
   } catch (err) {
     console.error("requestOtp error:", err);
     return res.status(500).json({ message: "Server error" });
@@ -80,10 +99,11 @@ exports.verifyOtp = async (req, res) => {
   try {
     const session = req.customerSession;
     const { phone, otp, purpose, name } = req.body;
-
     const p = normalizePhone(phone);
-    if (!p || !otp) return res.status(400).json({ message: "Phone and OTP are required" });
 
+    if (!p || !otp) {
+      return res.status(400).json({ message: "Phone and OTP are required" });
+    }
     if (!["LOGIN", "REGISTER"].includes(purpose)) {
       return res.status(400).json({ message: "Invalid purpose" });
     }
@@ -96,22 +116,29 @@ exports.verifyOtp = async (req, res) => {
       expiresAt: { $gt: new Date() },
     }).sort({ createdAt: -1 });
 
-    if (!record) return res.status(401).json({ message: "OTP expired or invalid" });
+    if (!record) {
+      return res.status(401).json({ message: "OTP expired or not found. Please request a new one." });
+    }
 
     if (record.attempts >= record.maxAttempts) {
-      await CustomerOtp.deleteMany({ _id: record._id });
-      return res.status(429).json({ message: "Too many attempts. Request a new OTP." });
+      await CustomerOtp.deleteOne({ _id: record._id });
+      return res.status(429).json({
+        message: "Too many incorrect attempts. Please request a new OTP.",
+      });
     }
 
     const ok = await bcrypt.compare(String(otp), record.otpHash);
     if (!ok) {
       record.attempts += 1;
       await record.save();
-      return res.status(401).json({ message: "Incorrect OTP" });
+      const remaining = record.maxAttempts - record.attempts;
+      return res.status(401).json({
+        message: `Incorrect OTP. ${remaining} attempt(s) remaining.`,
+      });
     }
 
-    // OTP correct -> consume OTP
-    await CustomerOtp.deleteMany({ _id: record._id });
+    // OTP correct — consume it
+    await CustomerOtp.deleteOne({ _id: record._id });
 
     let customer;
 
@@ -119,8 +146,6 @@ exports.verifyOtp = async (req, res) => {
       if (!name || !String(name).trim()) {
         return res.status(400).json({ message: "Name is required for registration" });
       }
-
-      // Create customer (global identity)
       customer = await Customer.create({
         restaurantId: session.restaurantId,
         name: String(name).trim(),
@@ -129,22 +154,29 @@ exports.verifyOtp = async (req, res) => {
         lastLoginAt: new Date(),
       });
     } else {
-      // LOGIN
-      customer = await Customer.findOne({ restaurantId: session.restaurantId, phone: p });
-      if (!customer) return res.status(401).json({ message: "Account not found" });
-
+      customer = await Customer.findOne({
+        restaurantId: session.restaurantId,
+        phone: p,
+      });
+      if (!customer) {
+        return res.status(401).json({ message: "Account not found" });
+      }
       customer.isPhoneVerified = true;
       customer.lastLoginAt = new Date();
       await customer.save();
     }
 
-    // Link session -> customer
+    // Link session to customer
     session.customerId = customer._id;
     session.phone = p;
     await session.save();
 
     return res.json({
-      customer: { id: customer._id, name: customer.name, phone: customer.phone },
+      customer: {
+        id: customer._id,
+        name: customer.name,
+        phone: customer.phone,
+      },
     });
   } catch (err) {
     console.error("verifyOtp error:", err);
@@ -155,11 +187,15 @@ exports.verifyOtp = async (req, res) => {
 exports.me = async (req, res) => {
   try {
     const session = req.customerSession;
-    if (!session.customerId) return res.status(401).json({ message: "Not logged in" });
-
-    const customer = await Customer.findById(session.customerId).select("name phone");
-    if (!customer) return res.status(401).json({ message: "Customer not found" });
-
+    if (!session.customerId) {
+      return res.status(401).json({ message: "Not logged in" });
+    }
+    const customer = await Customer.findById(session.customerId).select(
+      "name phone"
+    );
+    if (!customer) {
+      return res.status(401).json({ message: "Customer not found" });
+    }
     return res.json({ customer });
   } catch (err) {
     console.error("me error:", err);

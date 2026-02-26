@@ -4,22 +4,25 @@ const User = require("../../models/User");
 
 exports.login = async (req, res) => {
   try {
-    const { email, password } = req.body || {};
+    const { phone, password } = req.body || {};
 
-    if (!email || !password) {
-      return res.status(400).json({ message: "email and password are required" });
+    // ✅ FIX: validate phone instead of email
+    if (!phone || !password) {
+      return res.status(400).json({ message: "phone and password are required" });
     }
 
-    const user = await User.findOne({ email: email.toLowerCase().trim(), role: "STAFF" });
+    // ✅ FIX: look up by phone instead of email
+    const user = await User.findOne({ phone: phone.trim(), role: "STAFF" });
     if (!user) return res.status(401).json({ message: "Invalid credentials" });
 
     const ok = await bcrypt.compare(password, user.passwordHash);
     if (!ok) return res.status(401).json({ message: "Invalid credentials" });
 
+    // ✅ FIX: 7d expiry instead of 30d
     const token = jwt.sign(
       { userId: user._id, role: user.role },
       process.env.JWT_SECRET,
-      { expiresIn: "30d" }
+      { expiresIn: "7d" }
     );
 
     return res.json({
@@ -27,13 +30,13 @@ exports.login = async (req, res) => {
       user: {
         _id: user._id,
         name: user.name,
-        email: user.email,
+        phone: user.phone, // ✅ FIX: return phone not email
         role: user.role,
         restaurantId: user.restaurantId,
       },
     });
   } catch (e) {
-    console.error(e);
+    console.error("[WAITER LOGIN ERROR]", e);
     return res.status(500).json({ message: "Server error" });
   }
 };

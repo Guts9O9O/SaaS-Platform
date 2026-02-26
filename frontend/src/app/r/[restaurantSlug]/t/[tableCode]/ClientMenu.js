@@ -127,7 +127,6 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
   }, [context?.restaurant?.slug, restaurantSlug, tableCode]);
 
   useEffect(() => {
-    if (!context?.restaurant?._id) return;
     let cancelled = false;
     async function checkAuth() {
       try {
@@ -389,6 +388,8 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
     return (
       <CustomerAuth
         restaurantName={context?.restaurant?.name}
+        restaurantSlug={restaurantSlug}
+        tableCode={tableCode}
         onSuccess={(cust) => setCustomer(cust)}
       />
     );
