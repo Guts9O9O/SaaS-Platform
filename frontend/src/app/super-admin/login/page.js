@@ -14,7 +14,7 @@ export default function SuperAdminLogin() {
       setError(null);
 
       const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/admin/auth/login`,
+        `${process.env.NEXT_PUBLIC_API_URL}/api/admin/super-admin/login`,
         {
           method: "POST",
           headers: { "Content-Type": "application/json" },
