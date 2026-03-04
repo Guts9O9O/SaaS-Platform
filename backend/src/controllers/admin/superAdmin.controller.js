@@ -242,3 +242,116 @@ exports.updateRestaurantLimits = async (req, res) => {
     return res.status(500).json({ message: "Server error" });
   }
 };
+
+// ============================================================
+// ADD THESE TWO FUNCTIONS to controllers/admin/superAdmin.controller.js
+// Also add these two routes to your super-admin routes file
+// ============================================================
+
+// -------------------------------------------------------
+// GET /api/admin/super-admin/restaurants/:restaurantId/admin-user
+// Returns the admin user linked to this restaurant
+// -------------------------------------------------------
+exports.getAdminUser = async (req, res) => {
+  try {
+    const { restaurantId } = req.params;
+    const user = await User.findOne({ restaurantId, role: "RESTAURANT_ADMIN" })
+      .select("_id name email phone role createdAt")
+      .lean();
+    if (!user) return res.status(404).json({ message: "No admin user found" });
+    return res.status(200).json({ user });
+  } catch (err) {
+    console.error("getAdminUser error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// -------------------------------------------------------
+// POST /api/admin/super-admin/restaurants/:restaurantId/reset-admin-password
+// Body: { newPassword: string }
+// Resets the admin password for this restaurant
+// -------------------------------------------------------
+exports.resetAdminPassword = async (req, res) => {
+  try {
+    const { restaurantId } = req.params;
+    const { newPassword } = req.body;
+    if (!newPassword || newPassword.length < 6) {
+      return res.status(400).json({ message: "Password must be at least 6 characters" });
+    }
+    const user = await User.findOne({ restaurantId, role: "RESTAURANT_ADMIN" });
+    if (!user) return res.status(404).json({ message: "No admin user found for this restaurant" });
+    user.passwordHash = await bcrypt.hash(newPassword, 10);
+    await user.save();
+    return res.status(200).json({ message: "Password updated successfully" });
+  } catch (err) {
+    console.error("resetAdminPassword error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// -------------------------------------------------------
+// ALSO update exports.updateRestaurant to support ownerName, ownerEmail, isActive, subscriptionEnd
+// Replace your current updateRestaurant with this:
+// -------------------------------------------------------
+exports.updateRestaurant = async (req, res) => {
+  try {
+    const { restaurantId } = req.params;
+    const {
+      name, contact, ownerName, ownerEmail,
+      isActive, menuItemVideoLimit, restaurantVideoLimit,
+    } = req.body;
+    const update = {};
+    if (name !== undefined) update.name = name;
+    if (contact !== undefined) update.contact = contact;
+    if (ownerName !== undefined) update.ownerName = ownerName;
+    if (ownerEmail !== undefined) update.ownerEmail = ownerEmail;
+    if (isActive !== undefined) update.isActive = isActive;
+    if (menuItemVideoLimit !== undefined) {
+      const n = Number(menuItemVideoLimit);
+      if (!Number.isFinite(n) || n < 0 || n > 10)
+        return res.status(400).json({ message: "menuItemVideoLimit must be 0 to 10" });
+      update.menuItemVideoLimit = n;
+    }
+    if (restaurantVideoLimit !== undefined) {
+      const n = Number(restaurantVideoLimit);
+      if (!Number.isFinite(n) || n < 0 || n > 20)
+        return res.status(400).json({ message: "restaurantVideoLimit must be 0 to 20" });
+      update.restaurantVideoLimit = n;
+    }
+    const restaurant = await Restaurant.findByIdAndUpdate(restaurantId, update, { new: true });
+    if (!restaurant) return res.status(404).json({ message: "Restaurant not found" });
+    return res.status(200).json({ restaurant });
+  } catch (err) {
+    console.error("Update restaurant error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
+
+// -------------------------------------------------------
+// ADD THIS as updateSubscription (handles plan + status + subscriptionEnd together)
+// PUT /api/admin/super-admin/restaurants/:restaurantId/subscription
+// -------------------------------------------------------
+exports.updateSubscription = async (req, res) => {
+  try {
+    const { restaurantId } = req.params;
+    const { subscriptionStatus, plan, subscriptionEnd } = req.body;
+    const update = {};
+    if (subscriptionStatus) {
+      if (!["TRIAL", "ACTIVE", "SUSPENDED"].includes(subscriptionStatus))
+        return res.status(400).json({ message: "Invalid subscription status" });
+      update.subscriptionStatus = subscriptionStatus;
+    }
+    if (plan) {
+      if (!["FREE", "BASIC", "PRO"].includes(plan))
+        return res.status(400).json({ message: "Invalid plan" });
+      update.plan = plan;
+    }
+    if (subscriptionEnd !== undefined) update.subscriptionEnd = subscriptionEnd || null;
+    const restaurant = await Restaurant.findByIdAndUpdate(restaurantId, update, { new: true });
+    if (!restaurant) return res.status(404).json({ message: "Restaurant not found" });
+    return res.status(200).json({ restaurant });
+  } catch (err) {
+    console.error("updateSubscription error:", err);
+    return res.status(500).json({ message: "Server error" });
+  }
+};
