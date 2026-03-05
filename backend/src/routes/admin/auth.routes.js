@@ -3,30 +3,33 @@ const router = express.Router();
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 const User = require('../../models/User');
+const Restaurant = require('../../models/Restaurant');
+const authAdmin = require('../../middleware/authAdmin');
 require('dotenv').config();
 
 const jwtSecret = process.env.JWT_SECRET || 'replace_this_secret';
 const SALT_ROUNDS = 10;
 
-// POST /api/admin/register  (optional - usually done by super admin or seed)
+// ─── Helper: check restaurant subscription ───────────────────────────────────
+async function checkRestaurantAccess(restaurantId) {
+  const restaurant = await Restaurant.findById(restaurantId)
+    .select('isActive subscriptionStatus name')
+    .lean();
+  if (!restaurant) return { blocked: true, message: 'Restaurant not found' };
+  if (!restaurant.isActive) return { blocked: true, message: 'Your restaurant account is inactive. Contact support.' };
+  if (restaurant.subscriptionStatus === 'SUSPENDED') return { blocked: true, message: 'Your restaurant subscription is suspended. Contact support.' };
+  return { blocked: false, restaurant };
+}
+
+// POST /api/admin/auth/register
 router.post('/register', async (req, res) => {
   try {
     const { name, email, password, role = 'RESTAURANT_ADMIN', restaurantId = null } = req.body;
     if (!email || !password) return res.status(400).json({ message: 'Email and password required' });
-
     const existing = await User.findOne({ email });
     if (existing) return res.status(400).json({ message: 'User already exists' });
-
     const hash = await bcrypt.hash(password, SALT_ROUNDS);
-
-    const user = await User.create({
-      name,
-      email,
-      passwordHash: hash,
-      role,
-      restaurantId: restaurantId || null
-    });
-
+    const user = await User.create({ name, email, passwordHash: hash, role, restaurantId: restaurantId || null });
     return res.json({ success: true, user: { id: user._id, email: user.email, role: user.role } });
   } catch (err) {
     console.error('Admin register error:', err);
@@ -34,7 +37,7 @@ router.post('/register', async (req, res) => {
   }
 });
 
-// POST /api/admin/login
+// POST /api/admin/auth/login
 router.post('/login', async (req, res) => {
   try {
     const { email, password } = req.body;
@@ -46,63 +49,66 @@ router.post('/login', async (req, res) => {
     const match = await bcrypt.compare(password, user.passwordHash);
     if (!match) return res.status(401).json({ message: 'Invalid credentials' });
 
+    // ✅ Block login if restaurant is suspended/inactive
+    if (user.role === 'RESTAURANT_ADMIN' && user.restaurantId) {
+      const { blocked, message } = await checkRestaurantAccess(user.restaurantId);
+      if (blocked) return res.status(403).json({ message });
+    }
+
     const payload = { userId: user._id, role: user.role, restaurantId: user.restaurantId || null };
     const token = jwt.sign(payload, jwtSecret, { expiresIn: '7d' });
-
-    // optionally set cookie
     res.cookie('token', token, { httpOnly: true, sameSite: 'lax' });
 
     return res.json({
-      success: true,
-      token,
-      user: {
-        id: user._id,
-        email: user.email,
-        role: user.role,
-        restaurantId: user.restaurantId || null,
-      },
+      success: true, token,
+      user: { id: user._id, email: user.email, role: user.role, restaurantId: user.restaurantId || null },
     });
   } catch (err) {
     console.error('Admin login error:', err);
     return res.status(500).json({ message: 'Server error' });
   }
 });
+
 // GET /api/admin/auth/me
-// Returns current logged-in admin context
 router.get('/me', async (req, res) => {
   try {
     const authHeader = req.headers.authorization || '';
-    const token = authHeader.startsWith('Bearer ')
-      ? authHeader.slice(7)
-      : null;
-
-    if (!token) {
-      return res.status(401).json({ message: 'Missing token' });
-    }
-
+    const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : null;
+    if (!token) return res.status(401).json({ message: 'Missing token' });
     const decoded = jwt.verify(token, jwtSecret);
-
-    const user = await User.findById(decoded.userId)
-      .select('_id name email role restaurantId')
-      .lean();
-
-    if (!user) {
-      return res.status(401).json({ message: 'User not found' });
-    }
-
+    const user = await User.findById(decoded.userId).select('_id name email role restaurantId').lean();
+    if (!user) return res.status(401).json({ message: 'User not found' });
     return res.json({
       success: true,
-      user: {
-        id: user._id,
-        name: user.name,
-        email: user.email,
-        role: user.role,
-        restaurantId: user.restaurantId || null,
-      },
+      user: { id: user._id, name: user.name, email: user.email, role: user.role, restaurantId: user.restaurantId || null },
     });
   } catch (err) {
     console.error('Admin me error:', err);
     return res.status(401).json({ message: 'Invalid or expired token' });
+  }
+});
+
+// PUT /api/admin/auth/change-password
+// ✅ NEW: Allows logged-in admin to change their own password
+router.put('/change-password', authAdmin, async (req, res) => {
+  try {
+    const { currentPassword, newPassword } = req.body;
+    if (!currentPassword || !newPassword) return res.status(400).json({ message: 'Current and new password required' });
+    if (newPassword.length < 6) return res.status(400).json({ message: 'New password must be at least 6 characters' });
+
+    const user = await User.findById(req.user._id);
+    if (!user) return res.status(404).json({ message: 'User not found' });
+
+    const match = await bcrypt.compare(currentPassword, user.passwordHash);
+    if (!match) return res.status(401).json({ message: 'Current password is incorrect' });
+
+    user.passwordHash = await bcrypt.hash(newPassword, SALT_ROUNDS);
+    await user.save();
+
+    return res.json({ success: true, message: 'Password updated successfully' });
+  } catch (err) {
+    console.error('Change password error:', err);
+    return res.status(500).json({ message: 'Server error' });
   }
 });
 

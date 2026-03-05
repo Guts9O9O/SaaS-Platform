@@ -5,6 +5,7 @@ import CartDrawer from "../../../../components/CartDrawer";
 import { io } from "socket.io-client";
 import useMenuContext from "./hooks/useMenuContext";
 import CustomerAuth from "../../../../components/CustomerAuth";
+import FeedbackScreen from "../../../../components/FeedbackScreen";
 
 function getItemImage(item) {
   if (Array.isArray(item?.images) && item.images.length > 0) {
@@ -37,6 +38,7 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
   const [cartItems, setCartItems] = useState([]);
   const [showOrderPlacedModal, setShowOrderPlacedModal] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
+  const [feedbackData, setFeedbackData] = useState(null); // { grandTotal, restaurantName }
   const [activeTab, setActiveTab] = useState("menu");
   const [tableOrders, setTableOrders] = useState([]);
   const [loadingOrders, setLoadingOrders] = useState(false);
@@ -91,6 +93,53 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
     checkAuth();
     return () => { cancelled = true; };
   }, [context?.restaurant?._id]);
+
+  // ✅ Listen for bill_closed from backend → show feedback screen
+  useEffect(() => {
+    if (!customer) return;
+    let socket;
+
+    async function setupSocket() {
+      // ✅ FIX: cookie is httpOnly — can't read from JS
+      // Instead fetch sessionId from the session check API
+      let sessionId = null;
+      try {
+        const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/customer/session/check`, {
+          credentials: "include",
+        });
+        if (res.ok) {
+          const data = await res.json();
+          sessionId = data?.sessionId || data?.session?.sessionId || null;
+        }
+      } catch {}
+
+      if (!sessionId) {
+        console.warn("[CUSTOMER SOCKET] Could not get sessionId — bill_closed won't work");
+        return;
+      }
+
+      socket = io(process.env.NEXT_PUBLIC_API_URL, {
+        withCredentials: true,
+        transports: ["websocket", "polling"],
+      });
+
+      socket.on("connect", () => {
+        console.log("[CUSTOMER SOCKET] connected, joining session_" + sessionId);
+        socket.emit("join_customer_session", { sessionId });
+      });
+
+      socket.on("bill_closed", ({ grandTotal, restaurantName }) => {
+        console.log("[CUSTOMER SOCKET] bill_closed received!", { grandTotal });
+        setFeedbackData({
+          grandTotal,
+          restaurantName: restaurantName || context?.restaurant?.name,
+        });
+      });
+    }
+
+    setupSocket();
+    return () => { if (socket) socket.disconnect(); };
+  }, [customer]);
 
   async function refreshTableOrders() {
     try {
@@ -193,6 +242,22 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
   if (error) return <div style={{ minHeight:"100vh", background:"#0e0e0e", display:"flex", alignItems:"center", justifyContent:"center", color:"#f87171", padding:24, textAlign:"center", fontFamily:"sans-serif" }}>{error}</div>;
   if (!authChecked) return <div style={{ minHeight:"100vh", background:"#0e0e0e", display:"flex", alignItems:"center", justifyContent:"center", color:"#8a8070", fontFamily:"sans-serif" }}>Loading...</div>;
   if (!customer) return <CustomerAuth restaurantName={context?.restaurant?.name} restaurantSlug={restaurantSlug} tableCode={tableCode} onSuccess={(cust) => setCustomer(cust)} />;
+
+  // ✅ Bill closed → show feedback screen, then log out
+  if (feedbackData) {
+    return (
+      <FeedbackScreen
+        restaurantName={feedbackData.restaurantName}
+        grandTotal={feedbackData.grandTotal}
+        tableCode={tableCode}
+        onDone={async () => {
+          // Clear customer session then redirect to a thank-you page
+          await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/customer/auth/logout`, { method: "POST", credentials: "include" }).catch(() => {});
+          window.location.href = `/r/${restaurantSlug}/t/${tableCode}?goodbye=1`;
+        }}
+      />
+    );
+  }
 
   return (
     <>
@@ -407,7 +472,7 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
         </div>
 
         {/* CART FLOAT */}
-        {activeTab === "menu" && cartItems.length > 0 && (
+        {activeTab === "menu" && cartItems.length > 0 && !isCartOpen && (
           <button className="cart-float" onClick={() => setIsCartOpen(true)}>
             <svg width="24" height="24" fill="none" stroke="#0e0e0e" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
@@ -417,7 +482,7 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
         )}
 
         {/* BOTTOM BAR */}
-        {activeTab === "menu" && (
+        {activeTab === "menu" && !isCartOpen && (
           <div className="bottom-bar">
             <div className="bottom-bar-inner">
               <div className="bottom-bar-info">
@@ -478,7 +543,7 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
                     } catch (e) { alert(e?.message || "Failed to request bill"); }
                   }}
                 >
-                  {billRequested ? "✓ Bill Requested" : "💳 Bill"}
+                  {billRequested ? "✓ Bill Sent" : "💳 Bill"}
                 </button>
               </div>
             </div>
@@ -487,16 +552,14 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
 
         {/* CART DRAWER */}
         <CartDrawer isOpen={isCartOpen} onClose={() => setIsCartOpen(false)}>
-          <Cart cartItems={cartItems} onIncrease={increaseQty} onDecrease={decreaseQty} />
-          <div style={{ marginTop: 20, borderTop: "1px solid rgba(201,168,76,0.1)", paddingTop: 20, display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-            <div>
-              <div style={{ fontSize: 12, color: "#8a8070" }}>{cartCount} items</div>
-              <div style={{ fontFamily: "'Playfair Display',serif", fontSize: 22, fontWeight: 700, color: "#c9a84c" }}>{moneyINR(cartTotal)}</div>
-            </div>
-            <button onClick={placeOrder} style={{ padding: "14px 28px", background: "#c9a84c", color: "#0e0e0e", border: "none", borderRadius: 14, fontSize: 15, fontWeight: 700, cursor: "pointer", fontFamily: "'DM Sans',sans-serif", transition: "all 0.2s" }}>
-              Place Order →
-            </button>
-          </div>
+          <Cart
+            cartItems={cartItems}
+            onIncrease={increaseQty}
+            onDecrease={decreaseQty}
+            onPlaceOrder={placeOrder}
+            cartTotal={cartTotal}
+            cartCount={cartCount}
+          />
         </CartDrawer>
 
         {/* ORDER PLACED MODAL */}

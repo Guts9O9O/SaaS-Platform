@@ -1,18 +1,10 @@
 "use client";
 import { useState } from "react";
 
-export default function Cart({ cartItems, onIncrease, onDecrease, orderPlaced }) {
+export default function Cart({ cartItems, onIncrease, onDecrease, orderPlaced, onPlaceOrder, cartTotal, cartCount }) {
   const [animatingItemId, setAnimatingItemId] = useState(null);
 
-  if (cartItems.length === 0) {
-    return (
-      <div className="text-center py-8">
-        <p className="text-gray-400">Your cart is empty</p>
-      </div>
-    );
-  }
-
-  const total = cartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  function moneyINR(n) { return `₹${Number(n || 0).toFixed(2)}`; }
 
   function handleIncrease(itemId) {
     setAnimatingItemId(itemId);
@@ -26,48 +18,86 @@ export default function Cart({ cartItems, onIncrease, onDecrease, orderPlaced })
     setTimeout(() => setAnimatingItemId(null), 150);
   }
 
-  return (
-    <div className="space-y-3">
-      {cartItems.map((item) => (
-        <div
-          key={String(item.itemId)}
-          className="flex items-center justify-between p-3 rounded-2xl bg-neutral-800/60 border border-neutral-700/40"
-        >
-          <div className="flex-1 min-w-0 mr-3">
-            <p className="font-semibold text-white truncate">{item.name}</p>
-            <p className="text-sm text-amber-400">₹{item.price}</p>
-          </div>
+  if (cartItems.length === 0) {
+    return (
+      <div style={{ textAlign: "center", padding: "40px 20px" }}>
+        <div style={{ fontSize: 48, marginBottom: 12 }}>🛒</div>
+        <p style={{ color: "#8a8070", fontSize: 15, fontWeight: 500 }}>Your cart is empty</p>
+        <p style={{ color: "#4a4540", fontSize: 13, marginTop: 4 }}>Add items from the menu to get started</p>
+      </div>
+    );
+  }
 
-          <div className="flex items-center gap-3 bg-black/40 rounded-xl px-2 py-1.5 border border-neutral-700/40">
-            <button
-              disabled={orderPlaced}
-              onClick={() => handleDecrease(item.itemId)}
-              className="text-amber-400 font-bold px-2 disabled:opacity-50"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M20 12H4" />
-              </svg>
-            </button>
-            <span
-              className="font-bold text-white min-w-[20px] text-center transition-transform"
-              style={{
-                transform: animatingItemId === item.itemId ? "scale(1.25)" : "scale(1)",
-              }}
-            >
-              {item.quantity}
-            </span>
-            <button
-              disabled={orderPlaced}
-              onClick={() => handleIncrease(item.itemId)}
-              className="text-amber-400 font-bold px-2 disabled:opacity-50"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M12 4v16m8-8H4" />
-              </svg>
-            </button>
+  return (
+    <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+      {/* Items list */}
+      <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 10, paddingBottom: 16 }}>
+        {cartItems.map((item) => (
+          <div key={String(item.itemId)} style={{
+            display: "flex", alignItems: "center", justifyContent: "space-between",
+            padding: "12px 14px", borderRadius: 16,
+            background: "rgba(255,255,255,0.03)",
+            border: "1px solid rgba(245,240,232,0.07)",
+          }}>
+            <div style={{ flex: 1, minWidth: 0, marginRight: 12 }}>
+              <p style={{ fontWeight: 600, color: "#f5f0e8", fontSize: 14, margin: 0, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{item.name}</p>
+              <p style={{ fontSize: 13, color: "#c9a84c", margin: "3px 0 0", fontWeight: 500 }}>₹{item.price} × {item.quantity} = <span style={{ color: "#f5f0e8" }}>₹{(item.price * item.quantity).toFixed(2)}</span></p>
+            </div>
+            <div style={{ display: "flex", alignItems: "center", gap: 12, background: "rgba(201,168,76,0.08)", border: "1px solid rgba(201,168,76,0.15)", borderRadius: 100, padding: "6px 12px" }}>
+              <button disabled={orderPlaced} onClick={() => handleDecrease(item.itemId)}
+                style={{ background: "none", border: "none", color: "#c9a84c", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 0, opacity: orderPlaced ? 0.4 : 1 }}>−</button>
+              <span style={{
+                fontWeight: 700, color: "#f5f0e8", fontSize: 15, minWidth: 20, textAlign: "center",
+                transform: animatingItemId === item.itemId ? "scale(1.3)" : "scale(1)",
+                transition: "transform 0.15s",
+                display: "inline-block",
+              }}>{item.quantity}</span>
+              <button disabled={orderPlaced} onClick={() => handleIncrease(item.itemId)}
+                style={{ background: "none", border: "none", color: "#c9a84c", cursor: "pointer", fontSize: 18, lineHeight: 1, padding: 0, opacity: orderPlaced ? 0.4 : 1 }}>+</button>
+            </div>
+          </div>
+        ))}
+      </div>
+
+      {/* Sticky order footer */}
+      <div style={{
+        borderTop: "1px solid rgba(201,168,76,0.1)",
+        paddingTop: 16, marginTop: "auto",
+        background: "#161410",
+        position: "sticky", bottom: 0,
+      }}>
+        {/* Summary */}
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
+          <div>
+            <p style={{ fontSize: 12, color: "#8a8070", margin: 0 }}>{cartCount} item{cartCount !== 1 ? "s" : ""}</p>
+            <p style={{ fontSize: 22, fontWeight: 700, color: "#c9a84c", margin: "2px 0 0", fontFamily: "'Playfair Display', serif" }}>{moneyINR(cartTotal)}</p>
+          </div>
+          <div style={{ textAlign: "right" }}>
+            <p style={{ fontSize: 11, color: "#4a4540", margin: 0 }}>Taxes included</p>
+            <p style={{ fontSize: 11, color: "#4a4540", margin: "2px 0 0" }}>Pay at counter</p>
           </div>
         </div>
-      ))}
+
+        {/* Place Order button */}
+        <button
+          onClick={onPlaceOrder}
+          disabled={orderPlaced || cartItems.length === 0}
+          style={{
+            width: "100%", padding: "16px",
+            background: orderPlaced ? "rgba(201,168,76,0.3)" : "#c9a84c",
+            color: "#0e0e0e", border: "none", borderRadius: 16,
+            fontSize: 16, fontWeight: 700,
+            fontFamily: "inherit", cursor: orderPlaced ? "not-allowed" : "pointer",
+            transition: "all 0.2s", letterSpacing: 0.3,
+            opacity: orderPlaced ? 0.6 : 1,
+          }}
+        >
+          {orderPlaced ? "✓ Order Placed!" : `Place Order · ${moneyINR(cartTotal)}`}
+        </button>
+
+        {/* Safe area for iPhone */}
+        <div style={{ height: 8 }} />
+      </div>
     </div>
   );
 }

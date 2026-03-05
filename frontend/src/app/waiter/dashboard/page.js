@@ -8,43 +8,31 @@ function playNotificationChime() {
   try {
     const AudioContext = window.AudioContext || window.webkitAudioContext;
     if (!AudioContext) return;
-
     const ctx = new AudioContext();
-
-    // iPhone "Tri-tone" is essentially 3 quick sine bursts at these frequencies
     const notes = [
-      { freq: 1046.5, start: 0.0,  dur: 0.12 },  // C6 — high & bright
-      { freq: 1318.5, start: 0.13, dur: 0.12 },  // E6
-      { freq: 1567.98,start: 0.26, dur: 0.22 },  // G6 — held slightly longer
+      { freq: 1046.5,  start: 0.0,  dur: 0.12 },
+      { freq: 1318.5,  start: 0.13, dur: 0.12 },
+      { freq: 1567.98, start: 0.26, dur: 0.22 },
     ];
-
     notes.forEach(({ freq, start, dur }) => {
-      const osc  = ctx.createOscillator();
-      const gain = ctx.createGain();
-
-      // Add a subtle compressor so it punches without distorting
+      const osc        = ctx.createOscillator();
+      const gain       = ctx.createGain();
       const compressor = ctx.createDynamicsCompressor();
       compressor.threshold.setValueAtTime(-10, ctx.currentTime);
       compressor.knee.setValueAtTime(3, ctx.currentTime);
       compressor.ratio.setValueAtTime(6, ctx.currentTime);
       compressor.attack.setValueAtTime(0.001, ctx.currentTime);
       compressor.release.setValueAtTime(0.1, ctx.currentTime);
-
       osc.connect(gain);
       gain.connect(compressor);
       compressor.connect(ctx.destination);
-
       osc.type = "sine";
       osc.frequency.setValueAtTime(freq, ctx.currentTime + start);
-
       const t0 = ctx.currentTime + start;
       const t1 = t0 + dur;
-
-      // Sharp attack (0.008s), then exponential decay — like a struck bell
       gain.gain.setValueAtTime(0, t0);
-      gain.gain.linearRampToValueAtTime(0.95, t0 + 0.008); // ✅ louder: 0.95 vs old 0.4
+      gain.gain.linearRampToValueAtTime(0.95, t0 + 0.008);
       gain.gain.exponentialRampToValueAtTime(0.001, t1);
-
       osc.start(t0);
       osc.stop(t1 + 0.05);
     });
@@ -55,11 +43,11 @@ function playNotificationChime() {
 
 export default function WaiterDashboardPage() {
   const router = useRouter();
-  const [mounted, setMounted] = useState(false);
-  const [tables, setTables] = useState([]);
+  const [mounted, setMounted]         = useState(false);
+  const [tables, setTables]           = useState([]);
   const [loadingTables, setLoadingTables] = useState(true);
-  const [events, setEvents] = useState([]);
-  const [status, setStatus] = useState("disconnected");
+  const [events, setEvents]           = useState([]);
+  const [status, setStatus]           = useState("disconnected");
   const socketRef = useRef(null);
 
   const token = useMemo(() => (mounted ? getWaiterToken() : null), [mounted]);
@@ -83,7 +71,7 @@ export default function WaiterDashboardPage() {
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || "Failed to load tables");
       setTables(Array.isArray(data?.tables) ? data.tables : []);
-    } catch (e) {
+    } catch {
       setTables([]);
     } finally {
       setLoadingTables(false);
@@ -93,38 +81,48 @@ export default function WaiterDashboardPage() {
   useEffect(() => {
     if (!mounted || !token) return;
     fetchMyTables();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [mounted, token]);
 
   useEffect(() => {
     if (!mounted || !token) return;
 
+    // ✅ FIX: use both websocket + polling transports so it always connects
+    // Previously only "websocket" was used — if WS fails, no fallback → never joins room
     const socket = io(process.env.NEXT_PUBLIC_API_URL, {
-      transports: ["websocket"],
+      transports: ["websocket", "polling"],
       withCredentials: true,
       auth: { token },
     });
-
     socketRef.current = socket;
 
     socket.on("connect", () => {
       setStatus("connected");
+      console.log("[WAITER SOCKET] connected, id:", socket.id);
+      // ✅ FIX: emit join_waiter_room on connect (not via auth option)
+      // server.js reads token from this event, not from socket.auth
       socket.emit("join_waiter_room", { token });
+      console.log("[WAITER SOCKET] join_waiter_room emitted");
     });
 
-    socket.on("disconnect", () => setStatus("disconnected"));
-    socket.on("connect_error", () => setStatus("error"));
+    socket.on("disconnect", (reason) => {
+      setStatus("disconnected");
+      console.log("[WAITER SOCKET] disconnected:", reason);
+    });
 
+    socket.on("connect_error", (err) => {
+      setStatus("error");
+      console.error("[WAITER SOCKET] connect_error:", err.message);
+    });
+
+    // ✅ Listen for waiter:called (emitted by emitWaiterCalled helper)
     socket.on("waiter:called", (payload) => {
+      console.log("[WAITER SOCKET] waiter:called received:", payload);
       setEvents((prev) => {
         const alreadyPending = prev.some(
           (ev) => !ev.blurred && ev.payload?.tableCode === payload?.tableCode
         );
         if (alreadyPending) return prev;
-
-        // ✅ Play chime when a new notification arrives
         playNotificationChime();
-
         return [
           {
             id: `${Date.now()}_${Math.random()}`,
@@ -137,20 +135,26 @@ export default function WaiterDashboardPage() {
       });
     });
 
-    socket.on("service_request", ({ request }) => {
-      if (!request) return;
-      if (request.type !== "WAITER") return;
-      // ✅ Also chime for service_request events
+    // ✅ Also listen for service_request as fallback
+    socket.on("service_request", ({ request } = {}) => {
+      if (!request || request.type !== "WAITER") return;
+      console.log("[WAITER SOCKET] service_request (WAITER) received:", request);
       playNotificationChime();
-      setEvents((prev) => [
-        {
-          id: `${Date.now()}_${Math.random()}`,
-          type: "SERVICE_REQUEST",
-          payload: request,
-          ts: new Date().toISOString(),
-        },
-        ...prev,
-      ]);
+      setEvents((prev) => {
+        const alreadyPending = prev.some(
+          (ev) => !ev.blurred && ev.payload?.tableCode === request?.tableCode
+        );
+        if (alreadyPending) return prev;
+        return [
+          {
+            id: `${Date.now()}_${Math.random()}`,
+            type: "SERVICE_REQUEST",
+            payload: request,
+            ts: new Date().toISOString(),
+          },
+          ...prev,
+        ];
+      });
     });
 
     return () => {
@@ -167,27 +171,19 @@ export default function WaiterDashboardPage() {
 
   const handleAccept = (eventId, payload) => {
     const { orderId, tableCode, waiterUserId, restaurantId } = payload;
-
     socketRef.current?.emit("waiter:accepted", {
       restaurantId,
       tableCode,
       waiterUserId,
       payload: { orderId, status: "accepted", waiterUserId, tableCode },
     });
-
     setEvents((prev) =>
       prev.map((ev) =>
         ev.id === eventId
-          ? {
-              ...ev,
-              type: "WAITER_ACCEPTED",
-              payload: { ...ev.payload, status: "accepted" },
-              blurred: true,
-            }
+          ? { ...ev, type: "WAITER_ACCEPTED", payload: { ...ev.payload, status: "accepted" }, blurred: true }
           : ev
       )
     );
-
     setTimeout(() => {
       setEvents((prev) => prev.filter((ev) => ev.id !== eventId));
     }, 60000);
@@ -204,23 +200,12 @@ export default function WaiterDashboardPage() {
             <h1 className="text-3xl font-bold text-white">Waiter Dashboard</h1>
             <p className="text-gray-400 mt-1">
               Live customer calls • Status:{" "}
-              <span
-                className={
-                  status === "connected"
-                    ? "text-green-400"
-                    : status === "error"
-                    ? "text-red-400"
-                    : "text-gray-400"
-                }
-              >
+              <span className={status === "connected" ? "text-green-400" : status === "error" ? "text-red-400" : "text-gray-400"}>
                 {status}
               </span>
             </p>
           </div>
-          <button
-            onClick={logout}
-            className="px-4 py-2 rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 transition"
-          >
+          <button onClick={logout} className="px-4 py-2 rounded-lg bg-red-600/20 hover:bg-red-600/30 text-red-300 border border-red-500/30 transition">
             Logout
           </button>
         </div>
@@ -229,26 +214,18 @@ export default function WaiterDashboardPage() {
         <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5 mb-6">
           <div className="flex items-center justify-between">
             <h2 className="text-xl font-semibold text-white">My Assigned Tables</h2>
-            <button
-              onClick={fetchMyTables}
-              className="px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 text-sm"
-            >
+            <button onClick={fetchMyTables} className="px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 text-sm">
               Refresh
             </button>
           </div>
           {loadingTables ? (
             <p className="text-gray-400 mt-3">Loading tables...</p>
           ) : tables.length === 0 ? (
-            <p className="text-gray-400 mt-3">
-              No tables assigned yet. Ask admin to assign you to tables.
-            </p>
+            <p className="text-gray-400 mt-3">No tables assigned yet. Ask admin to assign you to tables.</p>
           ) : (
             <div className="flex flex-wrap gap-2 mt-3">
               {tables.map((t) => (
-                <span
-                  key={t._id}
-                  className="px-3 py-1 rounded-full bg-blue-500/15 border border-blue-500/25 text-blue-200 text-sm"
-                >
+                <span key={t._id} className="px-3 py-1 rounded-full bg-blue-500/15 border border-blue-500/25 text-blue-200 text-sm">
                   {t.tableCode}
                 </span>
               ))}
@@ -260,55 +237,31 @@ export default function WaiterDashboardPage() {
         <div className="bg-gray-900/60 border border-gray-800 rounded-2xl p-5">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-xl font-semibold text-white">Live Notifications</h2>
-            <button
-              onClick={() => setEvents([])}
-              className="px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 text-sm"
-            >
+            <button onClick={() => setEvents([])} className="px-3 py-2 rounded-lg bg-gray-800 hover:bg-gray-700 text-gray-200 border border-gray-700 text-sm">
               Clear
             </button>
           </div>
           {events.length === 0 ? (
-            <div className="text-gray-400 py-10 text-center">
-              No calls yet. Waiting for customers…
-            </div>
+            <div className="text-gray-400 py-10 text-center">No calls yet. Waiting for customers…</div>
           ) : (
             <div className="space-y-3">
               {events.map((ev) => {
                 const p = ev.payload || {};
                 const tableCode = p.tableCode || p?.payload?.tableCode;
                 return (
-                  <div
-                    key={ev.id}
-                    className={`p-4 rounded-xl bg-gray-950/40 border border-gray-800 flex items-start justify-between gap-4 transition-opacity ${
-                      ev.blurred ? "opacity-50" : ""
-                    }`}
-                  >
+                  <div key={ev.id} className={`p-4 rounded-xl bg-gray-950/40 border border-gray-800 flex items-start justify-between gap-4 transition-opacity ${ev.blurred ? "opacity-50" : ""}`}>
                     <div>
                       <div className="text-white font-semibold">
-                        Customer called waiter{" "}
-                        {tableCode ? (
-                          <span className="text-blue-300">({tableCode})</span>
-                        ) : null}
+                        Customer called waiter{tableCode ? <span className="text-blue-300"> ({tableCode})</span> : null}
                       </div>
-                      <div className="text-xs text-gray-500 mt-1">
-                        {new Date(ev.ts).toLocaleString()}
-                      </div>
+                      <div className="text-xs text-gray-500 mt-1">{new Date(ev.ts).toLocaleString()}</div>
                     </div>
                     <div className="flex items-center gap-2">
-                      <span
-                        className={`px-3 py-1 rounded-full text-xs border ${
-                          ev.blurred
-                            ? "bg-gray-600 border-gray-700 text-gray-400"
-                            : "bg-green-500/15 border-green-500/25 text-green-200"
-                        }`}
-                      >
+                      <span className={`px-3 py-1 rounded-full text-xs border ${ev.blurred ? "bg-gray-600 border-gray-700 text-gray-400" : "bg-green-500/15 border-green-500/25 text-green-200"}`}>
                         {ev.blurred ? "Accepted" : "NEW"}
                       </span>
                       {!ev.blurred && (
-                        <button
-                          onClick={() => handleAccept(ev.id, ev.payload)}
-                          className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm transition"
-                        >
+                        <button onClick={() => handleAccept(ev.id, ev.payload)} className="px-4 py-2 rounded-lg bg-blue-600 hover:bg-blue-700 text-white text-sm transition">
                           Accept
                         </button>
                       )}

@@ -28,96 +28,68 @@ exports.getRestaurantById = async (req, res) => {
   }
 };
 
-// FULL ONBOARDING — restaurant + admin account in one call
 exports.createRestaurant = async (req, res) => {
   try {
     const {
-      name, contact,
-      slug: slugOverride,
-      plan, subscriptionStatus,
+      name, contact, slug: slugOverride, plan, subscriptionStatus,
       menuItemVideoLimit, restaurantVideoLimit,
       adminName, adminEmail, adminPhone, adminPassword,
     } = req.body;
-
-    if (!name || !contact) {
-      return res.status(400).json({ message: "Restaurant name and contact are required" });
-    }
-
-    const slug = slugOverride
-      ? slugOverride.toLowerCase().trim()
-      : await generateUniqueSlug(name);
-
-    if (slugOverride && await Restaurant.exists({ slug })) {
-      return res.status(409).json({ message: "Slug already taken, choose another" });
-    }
-
+    if (!name || !contact) return res.status(400).json({ message: "Restaurant name and contact are required" });
+    const slug = slugOverride ? slugOverride.toLowerCase().trim() : await generateUniqueSlug(name);
+    if (slugOverride && await Restaurant.exists({ slug })) return res.status(409).json({ message: "Slug already taken" });
     const restaurant = await Restaurant.create({
       name, contact, slug,
       plan: ["FREE", "BASIC", "PRO"].includes(plan) ? plan : "FREE",
-      subscriptionStatus: ["TRIAL", "ACTIVE", "SUSPENDED"].includes(subscriptionStatus)
-        ? subscriptionStatus : "TRIAL",
+      subscriptionStatus: ["TRIAL", "ACTIVE", "SUSPENDED"].includes(subscriptionStatus) ? subscriptionStatus : "TRIAL",
       ...(Number.isFinite(Number(menuItemVideoLimit)) ? { menuItemVideoLimit: Number(menuItemVideoLimit) } : {}),
       ...(Number.isFinite(Number(restaurantVideoLimit)) ? { restaurantVideoLimit: Number(restaurantVideoLimit) } : {}),
     });
-
     let adminUser = null;
     if (adminEmail) {
-      if (!adminPassword) {
-        await Restaurant.findByIdAndDelete(restaurant._id);
-        return res.status(400).json({ message: "adminPassword is required when creating an admin account" });
-      }
+      if (!adminPassword) { await Restaurant.findByIdAndDelete(restaurant._id); return res.status(400).json({ message: "adminPassword is required" }); }
       const emailExists = await User.findOne({ email: adminEmail.toLowerCase().trim() });
-      if (emailExists) {
-        await Restaurant.findByIdAndDelete(restaurant._id);
-        return res.status(409).json({ message: "Admin email already in use" });
-      }
+      if (emailExists) { await Restaurant.findByIdAndDelete(restaurant._id); return res.status(409).json({ message: "Admin email already in use" }); }
       const passwordHash = await bcrypt.hash(adminPassword, 10);
-      adminUser = await User.create({
-        name: adminName || name,
-        email: adminEmail.toLowerCase().trim(),
-        phone: adminPhone ? adminPhone.trim() : null,
-        passwordHash,
-        role: "RESTAURANT_ADMIN",
-        restaurantId: restaurant._id,
-      });
+      adminUser = await User.create({ name: adminName || name, email: adminEmail.toLowerCase().trim(), phone: adminPhone ? adminPhone.trim() : null, passwordHash, role: "RESTAURANT_ADMIN", restaurantId: restaurant._id });
     }
-
-    return res.status(201).json({
-      message: "Restaurant created successfully",
-      restaurant,
-      adminUser: adminUser ? {
-        _id: adminUser._id, name: adminUser.name,
-        email: adminUser.email, phone: adminUser.phone, role: adminUser.role,
-      } : null,
-    });
+    return res.status(201).json({ message: "Restaurant created successfully", restaurant, adminUser: adminUser ? { _id: adminUser._id, name: adminUser.name, email: adminUser.email, phone: adminUser.phone, role: adminUser.role } : null });
   } catch (err) {
     console.error("Create restaurant error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
 
+// ✅ UPDATED: supports ownerName, ownerEmail, isActive + emits socket if suspended
 exports.updateRestaurant = async (req, res) => {
   try {
     const { restaurantId } = req.params;
-    const { name, contact, status, menuItemVideoLimit, restaurantVideoLimit } = req.body;
+    const { name, contact, ownerName, ownerEmail, isActive, menuItemVideoLimit, restaurantVideoLimit } = req.body;
     const update = {};
     if (name !== undefined) update.name = name;
     if (contact !== undefined) update.contact = contact;
-    if (status !== undefined) update.status = status;
+    if (ownerName !== undefined) update.ownerName = ownerName;
+    if (ownerEmail !== undefined) update.ownerEmail = ownerEmail;
+    if (isActive !== undefined) update.isActive = isActive;
     if (menuItemVideoLimit !== undefined) {
       const n = Number(menuItemVideoLimit);
-      if (!Number.isFinite(n) || n < 0 || n > 10)
-        return res.status(400).json({ message: "menuItemVideoLimit must be 0 to 10" });
+      if (!Number.isFinite(n) || n < 0 || n > 10) return res.status(400).json({ message: "menuItemVideoLimit must be 0–10" });
       update.menuItemVideoLimit = n;
     }
     if (restaurantVideoLimit !== undefined) {
       const n = Number(restaurantVideoLimit);
-      if (!Number.isFinite(n) || n < 0 || n > 20)
-        return res.status(400).json({ message: "restaurantVideoLimit must be 0 to 20" });
+      if (!Number.isFinite(n) || n < 0 || n > 20) return res.status(400).json({ message: "restaurantVideoLimit must be 0–20" });
       update.restaurantVideoLimit = n;
     }
     const restaurant = await Restaurant.findByIdAndUpdate(restaurantId, update, { new: true });
     if (!restaurant) return res.status(404).json({ message: "Restaurant not found" });
+
+    // ✅ Emit socket if restaurant deactivated
+    if (isActive === false) {
+      const io = req.app.get("io");
+      if (io) io.to(`restaurant_${restaurantId}`).emit("subscription_update", { status: "INACTIVE", message: "Your restaurant account has been deactivated. Please contact support." });
+    }
+
     return res.status(200).json({ restaurant });
   } catch (err) {
     console.error("Update restaurant error:", err);
@@ -147,23 +119,56 @@ exports.getRestaurants = async (req, res) => {
   }
 };
 
-exports.updateSubscriptionStatus = async (req, res) => {
+// ✅ UPDATED: emits real-time socket event on suspension/activation
+exports.updateSubscription = async (req, res) => {
   try {
     const { restaurantId } = req.params;
-    const { subscriptionStatus, plan } = req.body;
-    if (!["TRIAL", "ACTIVE", "SUSPENDED"].includes(subscriptionStatus))
-      return res.status(400).json({ message: "Invalid subscription status" });
-    if (!["FREE", "BASIC", "PRO"].includes(plan))
-      return res.status(400).json({ message: "Invalid plan type" });
-    const restaurant = await Restaurant.findByIdAndUpdate(
-      restaurantId, { subscriptionStatus, plan }, { new: true }
-    );
+    const { subscriptionStatus, plan, subscriptionEnd } = req.body;
+    const update = {};
+    if (subscriptionStatus) {
+      if (!["TRIAL", "ACTIVE", "SUSPENDED"].includes(subscriptionStatus)) return res.status(400).json({ message: "Invalid subscription status" });
+      update.subscriptionStatus = subscriptionStatus;
+    }
+    if (plan) {
+      if (!["FREE", "BASIC", "PRO"].includes(plan)) return res.status(400).json({ message: "Invalid plan" });
+      update.plan = plan;
+    }
+    if (subscriptionEnd !== undefined) update.subscriptionEnd = subscriptionEnd || null;
+
+    const restaurant = await Restaurant.findByIdAndUpdate(restaurantId, update, { new: true });
     if (!restaurant) return res.status(404).json({ message: "Restaurant not found" });
+
+    // ✅ Emit real-time socket event to admin dashboard
+    const io = req.app.get("io");
+    if (io) {
+      if (subscriptionStatus === "SUSPENDED") {
+        io.to(`restaurant_${restaurantId}`).emit("subscription_update", {
+          status: "SUSPENDED",
+          message: "Your subscription has been suspended. Please contact support to reactivate your account.",
+        });
+      } else if (subscriptionStatus === "ACTIVE") {
+        io.to(`restaurant_${restaurantId}`).emit("subscription_update", {
+          status: "ACTIVE",
+          message: "Your subscription is now active.",
+        });
+      } else if (subscriptionStatus === "TRIAL") {
+        io.to(`restaurant_${restaurantId}`).emit("subscription_update", {
+          status: "TRIAL",
+          message: "Your account is on trial.",
+        });
+      }
+    }
+
     return res.status(200).json({ restaurant });
   } catch (err) {
-    console.error("Update subscription status error:", err);
+    console.error("updateSubscription error:", err);
     return res.status(500).json({ message: "Server error" });
   }
+};
+
+// Keep old one for backward compat
+exports.updateSubscriptionStatus = async (req, res) => {
+  return exports.updateSubscription(req, res);
 };
 
 exports.bulkCreateTables = async (req, res) => {
@@ -175,8 +180,7 @@ exports.bulkCreateTables = async (req, res) => {
       tableCodes = codes.map((c) => String(c).trim().toUpperCase()).filter(Boolean);
     } else {
       const n = Number(count || 0);
-      if (!n || n < 1 || n > 500)
-        return res.status(400).json({ message: "count must be between 1 and 500, or provide codes[]" });
+      if (!n || n < 1 || n > 500) return res.status(400).json({ message: "count must be 1–500" });
       const start = Number(startFrom || 1);
       for (let i = 0; i < n; i++) tableCodes.push(`${String(prefix).toUpperCase()}${start + i}`);
     }
@@ -184,11 +188,7 @@ exports.bulkCreateTables = async (req, res) => {
     const existingSet = new Set(existing.map((t) => t.tableCode));
     const toCreate = tableCodes.filter((c) => !existingSet.has(c)).map((c) => ({ restaurantId, tableCode: c, isActive: true }));
     const created = toCreate.length ? await Table.insertMany(toCreate, { ordered: false }) : [];
-    return res.status(201).json({
-      message: "Bulk table creation done",
-      requested: tableCodes.length, createdCount: created.length,
-      skippedCount: existing.length, createdTables: created, skippedTables: Array.from(existingSet),
-    });
+    return res.status(201).json({ message: "Bulk table creation done", requested: tableCodes.length, createdCount: created.length, skippedCount: existing.length, createdTables: created, skippedTables: Array.from(existingSet) });
   } catch (err) {
     console.error("bulkCreateTables error:", err);
     return res.status(500).json({ message: "Server error" });
@@ -224,14 +224,12 @@ exports.updateRestaurantLimits = async (req, res) => {
     const update = {};
     if (menuItemVideoLimit !== undefined) {
       const n = Number(menuItemVideoLimit);
-      if (!Number.isFinite(n) || n < 0 || n > 10)
-        return res.status(400).json({ message: "menuItemVideoLimit must be 0 to 10" });
+      if (!Number.isFinite(n) || n < 0 || n > 10) return res.status(400).json({ message: "menuItemVideoLimit must be 0–10" });
       update.menuItemVideoLimit = n;
     }
     if (restaurantVideoLimit !== undefined) {
       const n = Number(restaurantVideoLimit);
-      if (!Number.isFinite(n) || n < 0 || n > 20)
-        return res.status(400).json({ message: "restaurantVideoLimit must be 0 to 20" });
+      if (!Number.isFinite(n) || n < 0 || n > 20) return res.status(400).json({ message: "restaurantVideoLimit must be 0–20" });
       update.restaurantVideoLimit = n;
     }
     const restaurant = await Restaurant.findByIdAndUpdate(restaurantId, update, { new: true });
@@ -243,21 +241,10 @@ exports.updateRestaurantLimits = async (req, res) => {
   }
 };
 
-// ============================================================
-// ADD THESE TWO FUNCTIONS to controllers/admin/superAdmin.controller.js
-// Also add these two routes to your super-admin routes file
-// ============================================================
-
-// -------------------------------------------------------
-// GET /api/admin/super-admin/restaurants/:restaurantId/admin-user
-// Returns the admin user linked to this restaurant
-// -------------------------------------------------------
 exports.getAdminUser = async (req, res) => {
   try {
-    const { restaurantId } = req.params;
-    const user = await User.findOne({ restaurantId, role: "RESTAURANT_ADMIN" })
-      .select("_id name email phone role createdAt")
-      .lean();
+    const user = await User.findOne({ restaurantId: req.params.restaurantId, role: "RESTAURANT_ADMIN" })
+      .select("_id name email phone role createdAt").lean();
     if (!user) return res.status(404).json({ message: "No admin user found" });
     return res.status(200).json({ user });
   } catch (err) {
@@ -266,92 +253,17 @@ exports.getAdminUser = async (req, res) => {
   }
 };
 
-// -------------------------------------------------------
-// POST /api/admin/super-admin/restaurants/:restaurantId/reset-admin-password
-// Body: { newPassword: string }
-// Resets the admin password for this restaurant
-// -------------------------------------------------------
 exports.resetAdminPassword = async (req, res) => {
   try {
-    const { restaurantId } = req.params;
     const { newPassword } = req.body;
-    if (!newPassword || newPassword.length < 6) {
-      return res.status(400).json({ message: "Password must be at least 6 characters" });
-    }
-    const user = await User.findOne({ restaurantId, role: "RESTAURANT_ADMIN" });
-    if (!user) return res.status(404).json({ message: "No admin user found for this restaurant" });
+    if (!newPassword || newPassword.length < 6) return res.status(400).json({ message: "Password must be at least 6 characters" });
+    const user = await User.findOne({ restaurantId: req.params.restaurantId, role: "RESTAURANT_ADMIN" });
+    if (!user) return res.status(404).json({ message: "No admin user found" });
     user.passwordHash = await bcrypt.hash(newPassword, 10);
     await user.save();
     return res.status(200).json({ message: "Password updated successfully" });
   } catch (err) {
     console.error("resetAdminPassword error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-};
-
-// -------------------------------------------------------
-// ALSO update exports.updateRestaurant to support ownerName, ownerEmail, isActive, subscriptionEnd
-// Replace your current updateRestaurant with this:
-// -------------------------------------------------------
-exports.updateRestaurant = async (req, res) => {
-  try {
-    const { restaurantId } = req.params;
-    const {
-      name, contact, ownerName, ownerEmail,
-      isActive, menuItemVideoLimit, restaurantVideoLimit,
-    } = req.body;
-    const update = {};
-    if (name !== undefined) update.name = name;
-    if (contact !== undefined) update.contact = contact;
-    if (ownerName !== undefined) update.ownerName = ownerName;
-    if (ownerEmail !== undefined) update.ownerEmail = ownerEmail;
-    if (isActive !== undefined) update.isActive = isActive;
-    if (menuItemVideoLimit !== undefined) {
-      const n = Number(menuItemVideoLimit);
-      if (!Number.isFinite(n) || n < 0 || n > 10)
-        return res.status(400).json({ message: "menuItemVideoLimit must be 0 to 10" });
-      update.menuItemVideoLimit = n;
-    }
-    if (restaurantVideoLimit !== undefined) {
-      const n = Number(restaurantVideoLimit);
-      if (!Number.isFinite(n) || n < 0 || n > 20)
-        return res.status(400).json({ message: "restaurantVideoLimit must be 0 to 20" });
-      update.restaurantVideoLimit = n;
-    }
-    const restaurant = await Restaurant.findByIdAndUpdate(restaurantId, update, { new: true });
-    if (!restaurant) return res.status(404).json({ message: "Restaurant not found" });
-    return res.status(200).json({ restaurant });
-  } catch (err) {
-    console.error("Update restaurant error:", err);
-    return res.status(500).json({ message: "Server error" });
-  }
-};
-
-// -------------------------------------------------------
-// ADD THIS as updateSubscription (handles plan + status + subscriptionEnd together)
-// PUT /api/admin/super-admin/restaurants/:restaurantId/subscription
-// -------------------------------------------------------
-exports.updateSubscription = async (req, res) => {
-  try {
-    const { restaurantId } = req.params;
-    const { subscriptionStatus, plan, subscriptionEnd } = req.body;
-    const update = {};
-    if (subscriptionStatus) {
-      if (!["TRIAL", "ACTIVE", "SUSPENDED"].includes(subscriptionStatus))
-        return res.status(400).json({ message: "Invalid subscription status" });
-      update.subscriptionStatus = subscriptionStatus;
-    }
-    if (plan) {
-      if (!["FREE", "BASIC", "PRO"].includes(plan))
-        return res.status(400).json({ message: "Invalid plan" });
-      update.plan = plan;
-    }
-    if (subscriptionEnd !== undefined) update.subscriptionEnd = subscriptionEnd || null;
-    const restaurant = await Restaurant.findByIdAndUpdate(restaurantId, update, { new: true });
-    if (!restaurant) return res.status(404).json({ message: "Restaurant not found" });
-    return res.status(200).json({ restaurant });
-  } catch (err) {
-    console.error("updateSubscription error:", err);
     return res.status(500).json({ message: "Server error" });
   }
 };
