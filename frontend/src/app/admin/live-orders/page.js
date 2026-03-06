@@ -1,5 +1,4 @@
 "use client";
-console.log("🔥 LIVE ORDERS PAGE LOADED");
 import { useEffect, useMemo, useRef, useState } from "react";
 import { io } from "socket.io-client";
 import { useRouter } from "next/navigation";
@@ -13,7 +12,6 @@ function getToken() {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("adminToken") || localStorage.getItem("token");
 }
-
 function safeDecodeJwtPayload(token) {
   try {
     const parts = token.split(".");
@@ -21,705 +19,411 @@ function safeDecodeJwtPayload(token) {
     const payload = parts[1];
     const base64 = payload.replace(/-/g, "+").replace(/_/g, "/");
     const padded = base64.padEnd(base64.length + ((4 - (base64.length % 4)) % 4), "=");
-    const json = atob(padded);
-    return JSON.parse(json);
-  } catch {
-    return null;
-  }
+    return JSON.parse(atob(padded));
+  } catch { return null; }
 }
-
 async function apiFetch(path, opts = {}) {
   const token = getToken();
-
   const res = await fetch(`${API_BASE}${path}`, {
     ...opts,
-    headers: {
-      "Content-Type": "application/json",
-      ...(opts.headers || {}),
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
-    },
+    headers: { "Content-Type": "application/json", ...(opts.headers || {}), ...(token ? { Authorization: `Bearer ${token}` } : {}) },
   });
-
   const data = await res.json().catch(() => ({}));
   if (!res.ok) throw new Error(data?.message || `Request failed: ${res.status}`);
   return data;
 }
-
-function formatMoney(n) {
-  return Number(n || 0).toFixed(2);
-}
+function formatMoney(n) { return `₹${Number(n || 0).toFixed(2)}`; }
 
 const STATUS_META = {
-  PENDING: { label: "PENDING", bg: "#2a1d00", fg: "#ffcc66" },
-  ACCEPTED: { label: "ACCEPTED", bg: "#062a14", fg: "#9ff7b3" },
-  REJECTED: { label: "REJECTED", bg: "#2a0707", fg: "#ff9e9e" },
-  // CANCELLED: { label: "CANCELLED", bg: "#2a0707", fg: "#ff9e9e" },
-  // IN_KITCHEN: { label: "IN KITCHEN", bg: "#001f2a", fg: "#7ad9ff" },
-  // READY: { label: "READY", bg: "#20122a", fg: "#d7a6ff" },
-  // SERVED: { label: "SERVED", bg: "#1b1b1b", fg: "#eaeaea" },
+  PENDING:  { label: "Pending",  bg: "rgba(251,191,36,0.1)",  fg: "#fbbf24", border: "rgba(251,191,36,0.25)" },
+  ACCEPTED: { label: "Accepted", bg: "rgba(16,185,129,0.1)",  fg: "#10b981", border: "rgba(16,185,129,0.25)" },
+  REJECTED: { label: "Rejected", bg: "rgba(239,68,68,0.1)",   fg: "#ef4444", border: "rgba(239,68,68,0.25)" },
+  IN_KITCHEN:{ label: "In Kitchen",bg:"rgba(99,102,241,0.1)", fg: "#818cf8", border: "rgba(99,102,241,0.25)" },
+  READY:    { label: "Ready",    bg: "rgba(34,197,94,0.1)",   fg: "#22c55e", border: "rgba(34,197,94,0.25)" },
+  SERVED:   { label: "Served",   bg: "rgba(148,163,184,0.1)", fg: "#94a3b8", border: "rgba(148,163,184,0.25)" },
 };
 
 function StatusPill({ status }) {
-  const s = STATUS_META[status] || { label: status, bg: "#1b1b1b", fg: "#eaeaea" };
+  const s = STATUS_META[status] || { label: status, bg: "rgba(255,255,255,0.05)", fg: "#8a8070", border: "rgba(255,255,255,0.1)" };
   return (
-    <span
-      style={{
-        background: s.bg,
-        color: s.fg,
-        padding: "4px 10px",
-        borderRadius: 999,
-        fontSize: 12,
-        border: "1px solid #2a2a2a",
-        whiteSpace: "nowrap",
-      }}
-    >
+    <span style={{ background: s.bg, color: s.fg, border: `1px solid ${s.border}`, padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 600, letterSpacing: 0.3, whiteSpace: "nowrap" }}>
       {s.label}
     </span>
   );
 }
 
+function Toast({ message, type = "success", onClose }) {
+  useEffect(() => { const t = setTimeout(onClose, 3500); return () => clearTimeout(t); }, []);
+  const colors = {
+    success: { bg: "rgba(16,185,129,0.1)", border: "rgba(16,185,129,0.2)", fg: "#10b981" },
+    bill:    { bg: "rgba(201,168,76,0.1)",  border: "rgba(201,168,76,0.2)",  fg: "#c9a84c" },
+    waiter:  { bg: "rgba(99,102,241,0.1)",  border: "rgba(99,102,241,0.2)",  fg: "#818cf8" },
+  };
+  const c = colors[type] || colors.success;
+  return (
+    <div style={{ position: "fixed", top: 20, right: 20, zIndex: 9999, padding: "14px 20px", background: "#161410", border: `1px solid ${c.border}`, borderRadius: 14, boxShadow: "0 20px 40px rgba(0,0,0,0.4)", display: "flex", alignItems: "center", gap: 12, maxWidth: 360, animation: "slideIn 0.3s cubic-bezier(0.16,1,0.3,1)" }}>
+      <span style={{ fontSize: 18 }}>{type === "bill" ? "🧾" : type === "waiter" ? "🔔" : "✓"}</span>
+      <span style={{ color: "#f5f0e8", fontSize: 13, fontWeight: 500 }}>{message}</span>
+      <button onClick={onClose} style={{ marginLeft: "auto", background: "none", border: "none", color: "#8a8070", cursor: "pointer", fontSize: 16, padding: 0 }}>✕</button>
+    </div>
+  );
+}
+
 export default function LiveOrdersPage() {
-  // ✅ FIX: Hooks must be inside component (this caused your invalid hook call):contentReference[oaicite:1]{index=1}
   const router = useRouter();
-  useEffect(() => {
-    const t = getToken();
-    if (!t) router.push("/admin/login");
-  }, [router]);
+  useEffect(() => { const t = getToken(); if (!t) router.push("/admin/login"); }, [router]);
 
   const [tables, setTables] = useState([]);
   const [loading, setLoading] = useState(true);
   const [err, setErr] = useState("");
   const [search, setSearch] = useState("");
   const [showBillHistory, setShowBillHistory] = useState(false);
-
-  // ✅ revenue refresh trigger for RevenueSummaryPanel
   const [revenueTick, setRevenueTick] = useState(0);
-
   const [billingOpen, setBillingOpen] = useState(false);
   const [billingTable, setBillingTable] = useState(null);
-
-  // ✅ Bill requests state (NEW)
   const [billRequests, setBillRequests] = useState([]);
   const [waiterRequests, setWaiterRequests] = useState([]);
-  const [billToast, setBillToast] = useState("");
-  const billToastTimerRef = useRef(null);
-
+  const [toast, setToast] = useState(null);
+  const [waiterCalls, setWaiterCalls] = useState({});
   const refreshTimerRef = useRef(null);
   const socketRef = useRef(null);
-
-  const [waiterCalls, setWaiterCalls] = useState({});
-
-  // Keep restaurantId available for helpers/handlers
   const restaurantIdRef = useRef(null);
 
-  const containerStyle = { minHeight: "100vh", background: "#0b0b0b", color: "#eaeaea", padding: 16 };
-
-  const cardStyle = {
-    background: "#121212",
-    border: "1px solid #262626",
-    borderRadius: 12,
-    padding: 14,
-    boxShadow: "0 8px 24px rgba(0,0,0,0.35)",
-  };
-
-  const btnStyle = {
-    background: "#1c1c1c",
-    border: "1px solid #2a2a2a",
-    color: "#eaeaea",
-    padding: "8px 10px",
-    borderRadius: 10,
-    cursor: "pointer",
-    fontSize: 13,
-  };
-
-  const btnDanger = { ...btnStyle, background: "#2a0707", border: "1px solid #3a0f0f", color: "#ffb3b3" };
-  const btnOk = { ...btnStyle, background: "#062a14", border: "1px solid #0d3a1e", color: "#b7ffd0" };
-  const smallMuted = { color: "#a5a5a5", fontSize: 12 };
+  // styles passed to child components
+  const cardStyle = { background: "#161410", border: "1px solid rgba(245,240,232,0.07)", borderRadius: 16, padding: 16, boxShadow: "0 8px 32px rgba(0,0,0,0.3)" };
+  const btnStyle = { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(245,240,232,0.08)", color: "#c8bfb0", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "inherit", transition: "all 0.2s" };
+  const btnDanger = { ...btnStyle, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "#fca5a5" };
+  const btnOk = { ...btnStyle, background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)", color: "#6ee7b7" };
+  const btnGold = { ...btnStyle, background: "rgba(201,168,76,0.1)", border: "1px solid rgba(201,168,76,0.25)", color: "#c9a84c" };
+  const smallMuted = { color: "#8a8070", fontSize: 12 };
 
   const fetchLive = async () => {
     setErr("");
     const data = await apiFetch("/api/admin/orders/live-by-table");
     setTables(Array.isArray(data?.tables) ? data.tables : []);
   };
-
-  // ✅ Fetch pending bill requests (NEW)
   const fetchBillRequests = async (restaurantId) => {
     if (!restaurantId) return;
-    try {
-      const data = await apiFetch(
-        `/api/admin/requests?status=OPEN&type=BILL&restaurantId=${restaurantId}`
-      );
-      setBillRequests(Array.isArray(data?.requests) ? data.requests : []);
-    } catch (e) {
-      console.error("Failed to fetch bill requests:", e?.message || e);
-      // Don't break page if this fails
-    }
+    try { const data = await apiFetch(`/api/admin/requests?status=OPEN&type=BILL&restaurantId=${restaurantId}`); setBillRequests(Array.isArray(data?.requests) ? data.requests : []); } catch {}
   };
-
   const fetchWaiterRequests = async (restaurantId) => {
     if (!restaurantId) return;
-    try {
-      const data = await apiFetch(
-        `/api/admin/requests?status=OPEN&type=WAITER&restaurantId=${restaurantId}`
-      );
-      setWaiterRequests(Array.isArray(data?.requests) ? data.requests : []);
-    } catch (e) {
-      console.error("Failed to fetch waiter requests:", e?.message || e);
-    }
+    try { const data = await apiFetch(`/api/admin/requests?status=OPEN&type=WAITER&restaurantId=${restaurantId}`); setWaiterRequests(Array.isArray(data?.requests) ? data.requests : []); } catch {}
   };
-
   const scheduleRefresh = () => {
     if (refreshTimerRef.current) return;
-    refreshTimerRef.current = setTimeout(async () => {
-      refreshTimerRef.current = null;
-      try {
-        await fetchLive();
-      } catch (e) {
-        setErr(e.message || "Failed to refresh live orders");
-      }
-    }, 250);
+    refreshTimerRef.current = setTimeout(async () => { refreshTimerRef.current = null; try { await fetchLive(); } catch (e) { setErr(e.message); } }, 250);
   };
 
-  const showBillToast = (msg) => {
-    setBillToast(msg);
-    if (billToastTimerRef.current) clearTimeout(billToastTimerRef.current);
-    billToastTimerRef.current = setTimeout(() => {
-      setBillToast("");
-      billToastTimerRef.current = null;
-    }, 3500);
-  };
-  
-
-  // Initial load
   useEffect(() => {
     let mounted = true;
-
     (async () => {
-      try {
-        setLoading(true);
-        await fetchLive();
-      } catch (e) {
-        if (mounted) setErr(e.message || "Failed to load live orders");
-      } finally {
-        if (mounted) setLoading(false);
-      }
+      try { setLoading(true); await fetchLive(); } catch (e) { if (mounted) setErr(e.message); } finally { if (mounted) setLoading(false); }
     })();
-
-    return () => {
-      mounted = false;
-      if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current);
-      refreshTimerRef.current = null;
-
-      if (billToastTimerRef.current) clearTimeout(billToastTimerRef.current);
-      billToastTimerRef.current = null;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return () => { mounted = false; if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); };
   }, []);
 
-  // ✅ Socket.IO wiring + Bill Request listeners (UPDATED)
   useEffect(() => {
     const token = getToken();
     const payload = token ? safeDecodeJwtPayload(token) : null;
     const restaurantId = payload?.restaurantId || localStorage.getItem("restaurantId") || null;
     restaurantIdRef.current = restaurantId;
-    console.log("[ADMIN SOCKET] token exists:", !!token);
-console.log("[ADMIN SOCKET] decoded payload:", payload);
-console.log("[ADMIN SOCKET] restaurantId used:", restaurantId);
-console.log(
-          "[ADMIN SOCKET JOIN]",
-          "restaurant_",
-          restaurantId
-        );
-    if (!API_BASE) {
-      console.warn("NEXT_PUBLIC_API_URL is missing; Socket.IO disabled.");
-      return;
-    }
-
-    const socket = io(API_BASE, {
-      transports: ["websocket", "polling"],
-      withCredentials: true,
-      autoConnect: true,
-    
-    });
-
+    if (!API_BASE) return;
+    const socket = io(API_BASE, { transports: ["websocket", "polling"], withCredentials: true });
     socketRef.current = socket;
-
     const onConnect = () => {
-      // ✅ always join using token (no need restaurantId in JWT)
-      if (token) {
-        socket.emit("join_admin_room_secure", { token });
-        console.log("[ADMIN SOCKET JOIN SECURE] token-based join sent");
-      }
-
-      // ✅ keep these fetches (they need restaurantId for filtering)
-      if (restaurantId) {
-        fetchBillRequests(restaurantId);
-        fetchWaiterRequests(restaurantId);
-        console.log("[ADMIN REQUEST FETCH]", `restaurant_${restaurantId}`);
-      } else {
-        console.warn("[ADMIN] restaurantId missing for requests fetch (not critical for live orders)");
-      }
+      if (token) socket.emit("join_admin_room_secure", { token });
+      if (restaurantId) { fetchBillRequests(restaurantId); fetchWaiterRequests(restaurantId); }
     };
-
-    const onOrderUpdated = () => {
-      scheduleRefresh();
-    };
-
-    const onBillingClosed = () => {
-      scheduleRefresh();
-      setRevenueTick((x) => x + 1);
-    };
-
-    // ✅ NEW: customer bill request event (matches your backend emit)
+    const onOrderUpdated = () => scheduleRefresh();
+    const onBillingClosed = () => { scheduleRefresh(); setRevenueTick(x => x + 1); };
     const onServiceRequest = ({ request }) => {
       if (!request) return;
-
-      // 🧾 BILL REQUEST
       if (request.type === "BILL") {
-        showBillToast(`🧾 Bill requested: Table ${request.tableCode}`);
-
-        setBillRequests((prev) => {
-          const exists = prev.some((r) => String(r._id) === String(request._id));
-          return exists ? prev : [request, ...prev];
-        });
+        setToast({ msg: `Bill requested — Table ${request.tableCode}`, type: "bill" });
+        setBillRequests(prev => prev.some(r => String(r._id) === String(request._id)) ? prev : [request, ...prev]);
       }
-
-      // 🔔 WAITER CALL
       if (request.type === "WAITER") {
-        showBillToast(`🔔 Waiter called from Table ${request.tableCode}`);
-
-        setWaiterRequests((prev) => {
-          const exists = prev.some((r) => String(r._id) === String(request._id));
-          return exists ? prev : [request, ...prev];
-        });
-
-        setWaiterCalls((prev) => ({
-          ...prev,
-          [request.tableCode]: true,
-        }));
+        setToast({ msg: `Waiter called — Table ${request.tableCode}`, type: "waiter" });
+        setWaiterRequests(prev => prev.some(r => String(r._id) === String(request._id)) ? prev : [request, ...prev]);
+        setWaiterCalls(prev => ({ ...prev, [request.tableCode]: true }));
       }
     };
-
-    // ✅ NEW: updates when admin ACK/CLOSE (or future updates)
     const onServiceRequestUpdate = ({ request }) => {
-      if (!request?._id) return;
-      if (request?.type !== "BILL") return;
-
-      setBillRequests((prev) =>
-        prev
-          .map((r) => (String(r._id) === String(request._id) ? request : r))
-          .filter((r) => r.status === "OPEN" && r.type === "BILL")
-      );
+      if (!request?._id || request?.type !== "BILL") return;
+      setBillRequests(prev => prev.map(r => String(r._id) === String(request._id) ? request : r).filter(r => r.status === "OPEN" && r.type === "BILL"));
     };
-
-    const onConnectError = (e) => {
-      console.error("Socket connect_error:", e?.message || e);
-    };
-
     socket.on("connect", onConnect);
     socket.on("order_updated", onOrderUpdated);
-
     socket.on("order:updated", onOrderUpdated);
     socket.on("order:created", onOrderUpdated);
     socket.on("billing_closed", onBillingClosed);
-
     socket.on("service_request", onServiceRequest);
     socket.on("service_request_update", onServiceRequestUpdate);
-
-    socket.on("connect_error", onConnectError);
-
+    socket.on("connect_error", e => console.error("Socket error:", e?.message));
     return () => {
-      try {
-        // optional: keep old leave (not required for secure join)
-        if (restaurantId) socket.emit("leave_admin_room", { restaurantId });
-
-        socket.off("connect", onConnect);
-
-        // ✅ OFF for all order events you listen to
-        socket.off("order_updated", onOrderUpdated);
-        socket.off("order:updated", onOrderUpdated);
-        socket.off("order:created", onOrderUpdated);
-
-        socket.off("billing_closed", onBillingClosed);
-
-        socket.off("service_request", onServiceRequest);
-        socket.off("service_request_update", onServiceRequestUpdate);
-
-        socket.off("connect_error", onConnectError);
-        socket.disconnect();
-      } catch {}
+      try { if (restaurantId) socket.emit("leave_admin_room", { restaurantId }); socket.disconnect(); } catch {}
     };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const filteredTables = useMemo(() => {
     const q = (search || "").trim().toLowerCase();
     if (!q) return tables;
-
-    return tables.filter((t) => {
-      const hay = `${t.tableCode || ""}`.toLowerCase();
-      if (hay.includes(q)) return true;
-
-      const orders = Array.isArray(t.orders) ? t.orders : [];
-      return orders.some((o) =>
-        (o?.orderItems || o?.items || []).some((it) => `${it?.name || ""}`.toLowerCase().includes(q))
-      );
+    return tables.filter(t => {
+      if (`${t.tableCode || ""}`.toLowerCase().includes(q)) return true;
+      return (Array.isArray(t.orders) ? t.orders : []).some(o => (o?.items || []).some(it => `${it?.name || ""}`.toLowerCase().includes(q)));
     });
   }, [tables, search]);
 
   const updateOrderStatus = async (orderId, status) => {
-    try {
-      setErr("");
-      await apiFetch(`/api/admin/orders/${orderId}/status`, {
-        method: "PATCH",
-        body: JSON.stringify({ status }),
-      });
-      scheduleRefresh();
-    } catch (e) {
-      setErr(e.message || "Failed to update status");
-    }
+    try { setErr(""); await apiFetch(`/api/admin/orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status }) }); scheduleRefresh(); }
+    catch (e) { setErr(e.message); }
   };
-
-  // ✅ Admin actions on bill requests (NEW)
-  const ackBillRequest = async (id) => {
-    try {
-      setErr("");
-      await apiFetch(`/api/admin/requests/${id}/ack`, { method: "PATCH" });
-      await fetchBillRequests(restaurantIdRef.current);
-    } catch (e) {
-      setErr(e.message || "Failed to acknowledge bill request");
-    }
-  };
-
-  const closeBillRequest = async (id) => {
-    try {
-      setErr("");
-      await apiFetch(`/api/admin/requests/${id}/close`, { method: "PATCH" });
-      await fetchBillRequests(restaurantIdRef.current);
-    } catch (e) {
-      setErr(e.message || "Failed to close bill request");
-    }
-  };
-
-  const ackWaiterRequest = async (id) => {
-    try {
-      setErr("");
-      await apiFetch(`/api/admin/requests/${id}/ack`, { method: "PATCH" });
-      await fetchWaiterRequests(restaurantIdRef.current);
-    } catch (e) {
-      setErr(e.message || "Failed to acknowledge waiter request");
-    }
-  };
-
-  const closeWaiterRequest = async (id) => {
-    try {
-      setErr("");
-      await apiFetch(`/api/admin/requests/${id}/close`, { method: "PATCH" });
-      await fetchWaiterRequests(restaurantIdRef.current);
-    } catch (e) {
-      setErr(e.message || "Failed to close waiter request");
-    }
-  };
+  const ackBillRequest = async (id) => { try { await apiFetch(`/api/admin/requests/${id}/ack`, { method: "PATCH" }); await fetchBillRequests(restaurantIdRef.current); } catch (e) { setErr(e.message); } };
+  const closeBillRequest = async (id) => { try { await apiFetch(`/api/admin/requests/${id}/close`, { method: "PATCH" }); await fetchBillRequests(restaurantIdRef.current); } catch (e) { setErr(e.message); } };
+  const ackWaiterRequest = async (id) => { try { await apiFetch(`/api/admin/requests/${id}/ack`, { method: "PATCH" }); await fetchWaiterRequests(restaurantIdRef.current); } catch (e) { setErr(e.message); } };
+  const closeWaiterRequest = async (id) => { try { await apiFetch(`/api/admin/requests/${id}/close`, { method: "PATCH" }); await fetchWaiterRequests(restaurantIdRef.current); } catch (e) { setErr(e.message); } };
 
   return (
-    <div style={containerStyle}>
-      {showBillHistory && (
-        <BillHistoryPanel tables={tables} styles={{ cardStyle, btnStyle, btnOk, btnDanger, smallMuted }} />
-      )}
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@300;400;500;600&display=swap');
+        @keyframes slideIn { from { opacity:0; transform:translateX(20px); } to { opacity:1; transform:translateX(0); } }
+        @keyframes pulse { 0%,100% { opacity:1; } 50% { opacity:0.5; } }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        .lo-btn:hover { background: rgba(245,240,232,0.08) !important; color: #f5f0e8 !important; }
+        .lo-btn-danger:hover { background: rgba(239,68,68,0.15) !important; }
+        .lo-btn-ok:hover { background: rgba(16,185,129,0.15) !important; }
+        .lo-btn-gold:hover { background: rgba(201,168,76,0.2) !important; }
+        .lo-card:hover { border-color: rgba(245,240,232,0.12) !important; }
+        .lo-input:focus { border-color: rgba(201,168,76,0.4) !important; background: rgba(255,255,255,0.05) !important; }
+        .lo-order-card { transition: border-color 0.2s; }
+        .lo-order-card:hover { border-color: rgba(245,240,232,0.12) !important; }
+      `}</style>
 
-      <div style={{ display: "flex", gap: 12, alignItems: "center", marginBottom: 14 }}>
-        <h2 style={{ margin: 0, fontSize: 20 }}>Live Orders (By Table)</h2>
+      <div style={{ minHeight: "100vh", background: "#0e0e0e", color: "#f5f0e8", padding: "24px 20px", fontFamily: "'DM Sans', sans-serif" }}>
 
-        <button style={btnStyle} onClick={() => setShowBillHistory((v) => !v)}>
-          {showBillHistory ? "Hide Bill History" : "Show Bill History"}
-        </button>
+        {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
 
-        <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }}>
-          <input
-            value={search}
-            onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search table or item..."
-            style={{
-              background: "#0f0f0f",
-              border: "1px solid #2a2a2a",
-              color: "#eaeaea",
-              padding: "8px 10px",
-              borderRadius: 10,
-              width: 240,
-              outline: "none",
-            }}
-          />
-
-          <button
-            style={btnStyle}
-            onClick={async () => {
-              try {
-                setLoading(true);
-                await fetchLive();
-                await fetchBillRequests(restaurantIdRef.current);
-              } catch (e) {
-                setErr(e.message || "Refresh failed");
-              } finally {
-                setLoading(false);
-              }
-            }}
-          >
-            Refresh
-          </button>
-        </div>
-      </div>
-
-      {err ? (
-        <div style={{ ...cardStyle, borderColor: "#3a0f0f", background: "#160707", color: "#ffb3b3", marginBottom: 12 }}>
-          {err}
-        </div>
-      ) : null}
-
-      {billToast ? (
-        <div
-          style={{
-            ...cardStyle,
-            borderColor: "#0d3a1e",
-            background: "#062a14",
-            color: "#b7ffd0",
-            marginBottom: 12,
-            fontWeight: 700,
-          }}
-        >
-          🧾 {billToast}
-        </div>
-      ) : null}
-
-      {billRequests.length > 0 ? (
-        <div style={{ ...cardStyle, marginBottom: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>
-              Bill Requests <span style={{ ...smallMuted }}>({billRequests.length} pending)</span>
+        {/* PAGE HEADER */}
+        <div style={{ marginBottom: 24 }}>
+          <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+            <div>
+              <p style={{ fontSize: 11, letterSpacing: 2, textTransform: "uppercase", color: "#c9a84c", fontWeight: 600, marginBottom: 6 }}>Restaurant Dashboard</p>
+              <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 700, color: "#f5f0e8", margin: 0, letterSpacing: -0.5 }}>Live Orders</h1>
             </div>
-
-            <button
-              style={btnStyle}
-              onClick={() => fetchBillRequests(restaurantIdRef.current)}
-              title="Reload bill requests"
-            >
-              Reload
-            </button>
+            <div style={{ display: "flex", gap: 10, alignItems: "center", flexWrap: "wrap" }}>
+              <div style={{ position: "relative" }}>
+                <svg style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="14" height="14" fill="none" stroke="#8a8070" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35"/></svg>
+                <input className="lo-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search table or item..." style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(245,240,232,0.08)", color: "#f5f0e8", padding: "9px 14px 9px 36px", borderRadius: 12, fontSize: 13, outline: "none", width: 220, fontFamily: "inherit", transition: "all 0.2s" }} />
+              </div>
+              <button className="lo-btn" style={btnStyle} onClick={() => setShowBillHistory(v => !v)}>
+                {showBillHistory ? "Hide History" : "Bill History"}
+              </button>
+              <button className="lo-btn" style={btnGold} onClick={async () => { try { setLoading(true); await fetchLive(); await fetchBillRequests(restaurantIdRef.current); } catch (e) { setErr(e.message); } finally { setLoading(false); } }}>
+                <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                  <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
+                  Refresh
+                </span>
+              </button>
+            </div>
           </div>
 
-          <div style={{ height: 10 }} />
+          {/* Live indicator */}
+          <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
+            <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#10b981", animation: "pulse 2s infinite" }} />
+            <span style={{ fontSize: 12, color: "#8a8070" }}>Live • Updates automatically</span>
+            {tables.length > 0 && <span style={{ fontSize: 12, color: "#8a8070" }}>• {tables.length} active table{tables.length !== 1 ? "s" : ""}</span>}
+          </div>
+        </div>
 
-          <div style={{ display: "grid", gap: 10 }}>
-            {billRequests.slice(0, 10).map((r) => (
-              <div
-                key={r._id}
-                style={{
-                  border: "1px solid #262626",
-                  borderRadius: 12,
-                  padding: 12,
-                  background: "#0f0f0f",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 12,
-                }}
-              >
+        {/* DIVIDER */}
+        <div style={{ height: 1, background: "linear-gradient(90deg, rgba(201,168,76,0.3), transparent)", marginBottom: 24 }} />
+
+        {/* ERROR */}
+        {err && (
+          <div style={{ padding: "12px 16px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 12, marginBottom: 16, color: "#fca5a5", fontSize: 13, display: "flex", alignItems: "center", gap: 10 }}>
+            <span>⚠</span>{err}
+          </div>
+        )}
+
+        {/* BILL HISTORY */}
+        {showBillHistory && <BillHistoryPanel tables={tables} styles={{ cardStyle, btnStyle, btnOk, btnDanger, smallMuted }} />}
+
+        {/* BILL REQUESTS */}
+        {billRequests.length > 0 && (
+          <div style={{ ...cardStyle, marginBottom: 16, borderColor: "rgba(201,168,76,0.2)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 10, background: "rgba(201,168,76,0.1)", border: "1px solid rgba(201,168,76,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🧾</div>
                 <div>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>
-                    Table: <span style={{ color: "#fff" }}>{r.tableCode}</span>
-                  </div>
-                  <div style={smallMuted}>Requested: {new Date(r.createdAt).toLocaleString()}</div>
-                </div>
-
-                <div style={{ display: "flex", gap: 10 }}>
-                  <button style={btnOk} onClick={() => ackBillRequest(r._id)}>
-                    Acknowledge
-                  </button>
-                  <button style={btnDanger} onClick={() => closeBillRequest(r._id)}>
-                    Close
-                  </button>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: "#f5f0e8", margin: 0 }}>Bill Requests</p>
+                  <p style={{ fontSize: 11, color: "#8a8070", margin: 0 }}>{billRequests.length} pending</p>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {waiterRequests.length > 0 ? (
-        <div style={{ ...cardStyle, marginBottom: 12 }}>
-          <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 10 }}>
-            <div style={{ fontSize: 16, fontWeight: 700 }}>
-              Waiter Calls <span style={{ ...smallMuted }}>({waiterRequests.length} pending)</span>
+              <button className="lo-btn" style={btnStyle} onClick={() => fetchBillRequests(restaurantIdRef.current)}>Reload</button>
             </div>
-
-            <button
-              style={btnStyle}
-              onClick={() => fetchWaiterRequests(restaurantIdRef.current)}
-              title="Reload waiter calls"
-            >
-              Reload
-            </button>
-          </div>
-
-          <div style={{ height: 10 }} />
-
-          <div style={{ display: "grid", gap: 10 }}>
-            {waiterRequests.slice(0, 10).map((r) => (
-              <div
-                key={r._id}
-                style={{
-                  border: "1px solid #262626",
-                  borderRadius: 12,
-                  padding: 12,
-                  background: "#0f0f0f",
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "space-between",
-                  gap: 12,
-                }}
-              >
-                <div>
-                  <div style={{ fontSize: 14, fontWeight: 700 }}>
-                    Table: <span style={{ color: "#fff" }}>{r.tableCode}</span>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {billRequests.slice(0, 10).map(r => (
+                <div key={r._id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", background: "rgba(201,168,76,0.04)", border: "1px solid rgba(201,168,76,0.12)", borderRadius: 12, gap: 12 }}>
+                  <div>
+                    <p style={{ fontSize: 14, fontWeight: 600, color: "#f5f0e8", margin: 0 }}>Table <span style={{ color: "#c9a84c" }}>{r.tableCode}</span></p>
+                    <p style={{ fontSize: 11, color: "#8a8070", margin: "3px 0 0" }}>{new Date(r.createdAt).toLocaleTimeString()}</p>
                   </div>
-                  <div style={smallMuted}>Requested: {new Date(r.createdAt).toLocaleString()}</div>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="lo-btn-ok" style={btnOk} onClick={() => ackBillRequest(r._id)}>Acknowledge</button>
+                    <button className="lo-btn-danger" style={btnDanger} onClick={() => closeBillRequest(r._id)}>Close</button>
+                  </div>
                 </div>
+              ))}
+            </div>
+          </div>
+        )}
 
-                <div style={{ display: "flex", gap: 10 }}>
-                  <button style={btnOk} onClick={() => ackWaiterRequest(r._id)}>
-                    Acknowledge
-                  </button>
-                  <button style={btnDanger} onClick={() => closeWaiterRequest(r._id)}>
-                    Close
-                  </button>
+        {/* WAITER REQUESTS */}
+        {waiterRequests.length > 0 && (
+          <div style={{ ...cardStyle, marginBottom: 16, borderColor: "rgba(99,102,241,0.2)" }}>
+            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <div style={{ width: 32, height: 32, borderRadius: 10, background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🔔</div>
+                <div>
+                  <p style={{ fontSize: 14, fontWeight: 600, color: "#f5f0e8", margin: 0 }}>Waiter Calls</p>
+                  <p style={{ fontSize: 11, color: "#8a8070", margin: 0 }}>{waiterRequests.length} pending</p>
                 </div>
               </div>
-            ))}
-          </div>
-        </div>
-      ) : null}
-
-      {loading ? (
-        <div style={cardStyle}>Loading...</div>
-      ) : filteredTables.length === 0 ? (
-        <div style={cardStyle}>No live orders.</div>
-      ) : (
-        <div style={{ display: "grid", gridTemplateColumns: "1fr", gap: 12 }}>
-          {filteredTables.map((t) => {
-            const orders = Array.isArray(t.orders) ? t.orders : [];
-            return (
-              <div key={t.tableId} style={cardStyle}>
-                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <div style={{ fontSize: 16, fontWeight: 700 }}>
-                      Table: <span style={{ color: "#fff" }}>{t.tableCode}</span>
-                    </div>
-
-                    {waiterCalls[t.tableCode] && (
-                      <span
-                        style={{
-                          background: "#ffcc00",
-                          color: "#000",
-                          padding: "4px 8px",
-                          borderRadius: 999,
-                          fontSize: 12,
-                          fontWeight: 700,
-                        }}
-                      >
-                        🔔 WAITER
-                      </span>
-                    )}
+              <button className="lo-btn" style={btnStyle} onClick={() => fetchWaiterRequests(restaurantIdRef.current)}>Reload</button>
+            </div>
+            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
+              {waiterRequests.slice(0, 10).map(r => (
+                <div key={r._id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", background: "rgba(99,102,241,0.04)", border: "1px solid rgba(99,102,241,0.12)", borderRadius: 12, gap: 12 }}>
+                  <div>
+                    <p style={{ fontSize: 14, fontWeight: 600, color: "#f5f0e8", margin: 0 }}>Table <span style={{ color: "#818cf8" }}>{r.tableCode}</span></p>
+                    <p style={{ fontSize: 11, color: "#8a8070", margin: "3px 0 0" }}>{new Date(r.createdAt).toLocaleTimeString()}</p>
                   </div>
-                  <div style={{ marginLeft: "auto", display: "flex", gap: 10, alignItems: "center" }}>
-                    <div style={smallMuted}>
-                      Open Total: <b style={{ color: "#fff" }}>{formatMoney(t.totalOpenAmount)}</b>
-                    </div>
-
-                    <div style={smallMuted}>
-                      Orders: <b style={{ color: "#fff" }}>{orders.length}</b>
-                    </div>
-
-                    <button
-                      style={btnStyle}
-                      onClick={() => {
-                        setBillingTable({ tableId: t.tableId, tableCode: t.tableCode });
-                        setBillingOpen(true);
-                      }}
-                    >
-                      Billing
-                    </button>
+                  <div style={{ display: "flex", gap: 8 }}>
+                    <button className="lo-btn-ok" style={btnOk} onClick={() => ackWaiterRequest(r._id)}>Acknowledge</button>
+                    <button className="lo-btn-danger" style={btnDanger} onClick={() => closeWaiterRequest(r._id)}>Close</button>
                   </div>
                 </div>
+              ))}
+            </div>
+          </div>
+        )}
 
-                <div style={{ height: 10 }} />
+        {/* ORDERS */}
+        {loading ? (
+          <div style={{ ...cardStyle, display: "flex", alignItems: "center", gap: 12, color: "#8a8070" }}>
+            <svg style={{ animation: "spin 0.8s linear infinite" }} width="16" height="16" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeDashoffset="10" /></svg>
+            Loading live orders...
+          </div>
+        ) : filteredTables.length === 0 ? (
+          <div style={{ ...cardStyle, textAlign: "center", padding: "48px 24px" }}>
+            <div style={{ fontSize: 40, marginBottom: 12 }}>🍽️</div>
+            <p style={{ color: "#f5f0e8", fontWeight: 600, marginBottom: 6 }}>No live orders</p>
+            <p style={{ color: "#8a8070", fontSize: 13 }}>Orders will appear here as customers place them</p>
+          </div>
+        ) : (
+          <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+            {filteredTables.map(t => {
+              const orders = Array.isArray(t.orders) ? t.orders : [];
+              const hasBillReq = billRequests.some(r => r.tableCode === t.tableCode);
+              return (
+                <div key={t.tableId} className="lo-card" style={{ ...cardStyle, borderColor: hasBillReq ? "rgba(201,168,76,0.3)" : "rgba(245,240,232,0.07)", transition: "border-color 0.2s" }}>
 
-                <div style={{ display: "grid", gap: 10 }}>
-                  {orders.map((o) => {
-                    const items = o.orderItems || o.items || [];
-                    return (
-                      <div
-                        key={o._id}
-                        style={{
-                          border: "1px solid #262626",
-                          borderRadius: 12,
-                          padding: 12,
-                          background: "#0f0f0f",
-                        }}
-                      >
-                        <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                          <div style={{ fontSize: 14, fontWeight: 700 }}>Order #{String(o._id).slice(-6)}</div>
+                  {/* TABLE HEADER */}
+                  <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, gap: 12, flexWrap: "wrap" }}>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(201,168,76,0.1)", border: "1px solid rgba(201,168,76,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                        <svg width="16" height="16" fill="none" stroke="#c9a84c" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 10h18M3 14h18M10 3v18M14 3v18" /></svg>
+                      </div>
+                      <div>
+                        <p style={{ fontSize: 16, fontWeight: 700, color: "#f5f0e8", margin: 0 }}>Table <span style={{ color: "#c9a84c" }}>{t.tableCode}</span></p>
+                        <p style={{ fontSize: 11, color: "#8a8070", margin: 0 }}>{orders.length} order{orders.length !== 1 ? "s" : ""}</p>
+                      </div>
+                      {waiterCalls[t.tableCode] && (
+                        <span style={{ background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.3)", color: "#818cf8", padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 600 }}>🔔 Waiter Called</span>
+                      )}
+                      {hasBillReq && (
+                        <span style={{ background: "rgba(201,168,76,0.1)", border: "1px solid rgba(201,168,76,0.3)", color: "#c9a84c", padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 600 }}>🧾 Bill Requested</span>
+                      )}
+                    </div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 12 }}>
+                      <div style={{ textAlign: "right" }}>
+                        <p style={{ fontSize: 11, color: "#8a8070", margin: 0 }}>Open Total</p>
+                        <p style={{ fontSize: 18, fontWeight: 700, color: "#c9a84c", margin: 0, fontFamily: "'Playfair Display', serif" }}>{formatMoney(t.totalOpenAmount)}</p>
+                      </div>
+                      <button className="lo-btn-gold" style={btnGold} onClick={() => { setBillingTable({ tableId: t.tableId, tableCode: t.tableCode }); setBillingOpen(true); }}>
+                        <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 11h.01M12 11h.01M15 11h.01M4 19h16a2 2 0 002-2V7a2 2 0 00-2-2H4a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                          Billing
+                        </span>
+                      </button>
+                    </div>
+                  </div>
 
-                          <StatusPill status={o.status} />
+                  <div style={{ height: 1, background: "rgba(245,240,232,0.05)", marginBottom: 14 }} />
 
-                          <div style={{ marginLeft: "auto", ...smallMuted }}>
-                            Total: <b style={{ color: "#fff" }}>{formatMoney(o.totalAmount)}</b>
+                  {/* ORDERS */}
+                  <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                    {orders.map(o => {
+                      const items = o.items || o.orderItems || [];
+                      return (
+                        <div key={o._id} className="lo-order-card" style={{ background: "rgba(255,255,255,0.02)", border: "1px solid rgba(245,240,232,0.06)", borderRadius: 12, padding: "12px 14px" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 10 }}>
+                            <p style={{ fontSize: 13, fontWeight: 600, color: "#f5f0e8", margin: 0 }}>Order <span style={{ color: "#8a8070" }}>#{String(o._id).slice(-6)}</span></p>
+                            <StatusPill status={o.status} />
+                            <p style={{ marginLeft: "auto", fontSize: 13, fontWeight: 700, color: "#c9a84c", margin: 0 }}>{formatMoney(o.totalAmount)}</p>
                           </div>
-                        </div>
 
-                        <div style={{ marginTop: 8, display: "grid", gap: 6 }}>
-                          {items.map((it, idx) => (
-                            <div key={idx} style={{ display: "flex", gap: 10, ...smallMuted }}>
-                              <div style={{ flex: 1, color: "#eaeaea" }}>
-                                {it?.name} <span style={{ color: "#a5a5a5" }}>x{it?.quantity || 0}</span>
+                          {/* ITEMS */}
+                          <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
+                            {items.map((it, idx) => (
+                              <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
+                                <span style={{ color: "#c8bfb0" }}>{it?.name} <span style={{ color: "#8a8070" }}>×{it?.quantity || 0}</span></span>
+                                <span style={{ color: "#8a8070" }}>₹{Number(it?.price || 0).toFixed(2)}</span>
                               </div>
-                              <div>{formatMoney(it?.price)}</div>
-                            </div>
-                          ))}
-                        </div>
+                            ))}
+                          </div>
 
-                        <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
+                          {/* ACTIONS */}
                           {o.status === "PENDING" ? (
-                            <>
-                              <button style={btnOk} onClick={() => updateOrderStatus(o._id, "ACCEPTED")}>
-                                Accept
+                            <div style={{ display: "flex", gap: 8 }}>
+                              <button className="lo-btn-ok" style={{ ...btnOk, flex: 1 }} onClick={() => updateOrderStatus(o._id, "ACCEPTED")}>
+                                <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                                  <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                                  Accept
+                                </span>
                               </button>
-                              <button style={btnDanger} onClick={() => updateOrderStatus(o._id, "REJECTED")}>
-                                Reject
+                              <button className="lo-btn-danger" style={{ ...btnDanger, flex: 1 }} onClick={() => updateOrderStatus(o._id, "REJECTED")}>
+                                <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
+                                  <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                                  Reject
+                                </span>
                               </button>
-                            </>
+                            </div>
                           ) : (
-                            <div style={smallMuted}>Use next lifecycle buttons in next step (IN_KITCHEN → READY → SERVED)</div>
+                            <p style={{ fontSize: 11, color: "#4a4540", margin: 0 }}>Order accepted — manage via kitchen workflow</p>
                           )}
                         </div>
-                      </div>
-                    );
-                  })}
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      )}
+              );
+            })}
+          </div>
+        )}
 
-      <BillingModal
-        open={billingOpen}
-        onClose={() => setBillingOpen(false)}
-        tableId={billingTable?.tableId}
-        tableCode={billingTable?.tableCode}
-        onClosed={() => scheduleRefresh()}
-        styles={{ cardStyle, btnStyle, btnOk, btnDanger, smallMuted }}
-      />
-
-      <RevenueSummaryPanel styles={{ cardStyle, btnStyle, smallMuted }} refreshKey={revenueTick} />
-    </div>
+        <BillingModal
+          open={billingOpen}
+          onClose={() => setBillingOpen(false)}
+          tableId={billingTable?.tableId}
+          tableCode={billingTable?.tableCode}
+          onClosed={() => scheduleRefresh()}
+          styles={{ cardStyle, btnStyle, btnOk, btnDanger, smallMuted }}
+        />
+        <RevenueSummaryPanel styles={{ cardStyle, btnStyle, smallMuted }} refreshKey={revenueTick} />
+      </div>
+    </>
   );
 }

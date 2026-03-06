@@ -24,41 +24,27 @@ export default function AdminTablesPage() {
     const token = getAdminToken();
     if (!token) return router.replace("/admin/login");
     try {
-      setError(null);
-      setLoading(true);
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/tables`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      setError(null); setLoading(true);
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/tables`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json().catch(() => []);
       if (res.status === 401) { router.replace("/admin/login"); return; }
       if (!res.ok) throw new Error(data?.message || "Failed to load tables");
       setTables(Array.isArray(data) ? data : []);
-    } catch (e) {
-      setError(e.message || "Failed to load tables");
-    } finally {
-      setLoading(false);
-    }
+    } catch (e) { setError(e.message); } finally { setLoading(false); }
   };
 
   const fetchWaiters = async () => {
     const token = getAdminToken();
     if (!token) return;
     try {
-      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/staff/waiters`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/staff/waiters`, { headers: { Authorization: `Bearer ${token}` } });
       const data = await res.json().catch(() => ({}));
-      if (!res.ok) throw new Error(data?.message || "Failed to load waiters");
+      if (!res.ok) throw new Error(data?.message);
       setWaiters(Array.isArray(data.waiters) ? data.waiters : []);
-    } catch (e) {
-      console.error("fetchWaiters:", e.message);
-      setWaiters([]);
-    }
+    } catch { setWaiters([]); }
   };
 
-  useEffect(() => {
-    if (mounted) { fetchTables(); fetchWaiters(); }
-  }, [mounted]);
+  useEffect(() => { if (mounted) { fetchTables(); fetchWaiters(); } }, [mounted]);
 
   const createTable = async () => {
     if (!tableCode.trim()) return;
@@ -72,22 +58,13 @@ export default function AdminTablesPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || "Failed to create table");
-      setTableCode("");
-      setShowCreateModal(false);
-      fetchTables();
-    } catch (e) {
-      alert(e.message || "Failed to create table");
-    } finally {
-      setCreating(false);
-    }
+      setTableCode(""); setShowCreateModal(false); fetchTables();
+    } catch (e) { alert(e.message); } finally { setCreating(false); }
   };
 
   const deleteTable = async (id) => {
     const token = getAdminToken();
-    await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/tables/${id}`, {
-      method: "DELETE",
-      headers: { Authorization: `Bearer ${token}` },
-    });
+    await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/tables/${id}`, { method: "DELETE", headers: { Authorization: `Bearer ${token}` } });
     fetchTables();
   };
 
@@ -106,221 +83,184 @@ export default function AdminTablesPage() {
     if (!token) return router.replace("/admin/login");
     setAssigningId(tableId);
     try {
-      const res = await fetch(
-        `${process.env.NEXT_PUBLIC_API_URL}/api/admin/tables/${tableId}/assign-waiter`,
-        {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
-          body: JSON.stringify({ waiterId: waiterIdOrNull || null }),
-        }
-      );
+      const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/tables/${tableId}/assign-waiter`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ waiterId: waiterIdOrNull || null }),
+      });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || "Failed to assign waiter");
-      setTables((prev) =>
-        prev.map((t) =>
-          t._id === tableId
-            ? { ...t, assignedWaiterId: data?.table?.assignedWaiterId || null }
-            : t
-        )
-      );
-    } catch (e) {
-      alert(e.message || "Failed to assign waiter");
-    } finally {
-      setAssigningId(null);
-    }
+      setTables(prev => prev.map(t => t._id === tableId ? { ...t, assignedWaiterId: data?.table?.assignedWaiterId || null } : t));
+    } catch (e) { alert(e.message); } finally { setAssigningId(null); }
   };
 
   const openQr = async (table) => {
-    setQrModal(table);
-    setQrLoading(true);
-    setQrData(null);
+    setQrModal(table); setQrLoading(true); setQrData(null);
     const token = getAdminToken();
-    const res = await fetch(
-      `${process.env.NEXT_PUBLIC_API_URL}/api/admin/qr/tables/${table._id}/qr`,
-      { headers: { Authorization: `Bearer ${token}` } }
-    );
+    const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/admin/qr/tables/${table._id}/qr`, { headers: { Authorization: `Bearer ${token}` } });
     const data = await res.json().catch(() => ({}));
-    setQrData(data);
-    setQrLoading(false);
+    setQrData(data); setQrLoading(false);
   };
 
   if (!mounted) return null;
-  if (loading)
-    return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <div className="text-center">
-          <div className="inline-block w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4" />
-          <p className="text-gray-300">Loading tables...</p>
-        </div>
-      </div>
-    );
-  if (error)
-    return (
-      <div className="flex items-center justify-center min-h-[50vh]">
-        <div className="bg-red-500/10 border border-red-500 rounded-lg p-6 max-w-md">
-          <p className="text-red-400 text-center">{error}</p>
-        </div>
-      </div>
-    );
 
   return (
-    <div className="p-6">
-      <div className="max-w-7xl mx-auto">
-        {/* Header */}
-        <div className="flex justify-between items-center mb-8">
-          <div>
-            <h1 className="text-3xl font-bold text-white mb-2">Table Management</h1>
-            <p className="text-gray-400">Manage your restaurant tables, QR codes, and waiter assignment</p>
+    <>
+      <style>{`
+        @import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@700&family=DM+Sans:wght@300;400;500;600&display=swap');
+        @keyframes fadeUp { from { opacity:0; transform:translateY(16px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes spin { to { transform:rotate(360deg); } }
+        @keyframes modalIn { from { opacity:0; transform:scale(0.96) translateY(8px); } to { opacity:1; transform:scale(1) translateY(0); } }
+        .tp-row { transition: background 0.15s; }
+        .tp-row:hover { background: rgba(245,240,232,0.02) !important; }
+        .tp-btn { transition: all 0.2s; }
+        .tp-btn:hover { opacity: 0.85; transform: translateY(-1px); }
+        .tp-select { transition: border-color 0.2s; }
+        .tp-select:focus { border-color: rgba(201,168,76,0.4) !important; outline: none; }
+      `}</style>
+
+      <div style={{ minHeight: "100vh", background: "#0e0e0e", color: "#f5f0e8", padding: "28px 24px", fontFamily: "'DM Sans', sans-serif" }}>
+
+        {/* HEADER */}
+        <div style={{ marginBottom: 28, animation: "fadeUp 0.4s cubic-bezier(0.16,1,0.3,1)" }}>
+          <p style={{ fontSize: 11, letterSpacing: 2.5, textTransform: "uppercase", color: "#c9a84c", fontWeight: 600, marginBottom: 6 }}>Restaurant Admin</p>
+          <div style={{ display: "flex", alignItems: "flex-end", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
+            <div>
+              <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 30, fontWeight: 700, color: "#f5f0e8", margin: 0, letterSpacing: -0.5 }}>Table Management</h1>
+              <p style={{ color: "#8a8070", fontSize: 13, margin: "6px 0 0", fontWeight: 300 }}>Manage tables, QR codes and waiter assignments</p>
+            </div>
+            <button onClick={() => setShowCreateModal(true)} style={{ display: "flex", alignItems: "center", gap: 8, padding: "11px 20px", background: "#c9a84c", color: "#0e0e0e", border: "none", borderRadius: 12, fontSize: 14, fontWeight: 700, fontFamily: "inherit", cursor: "pointer", transition: "all 0.2s", whiteSpace: "nowrap" }}
+              onMouseEnter={e => { e.currentTarget.style.background = "#d4b460"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+              onMouseLeave={e => { e.currentTarget.style.background = "#c9a84c"; e.currentTarget.style.transform = "none"; }}>
+              <svg width="16" height="16" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M12 4v16m8-8H4" /></svg>
+              Add Table
+            </button>
           </div>
-          <button
-            onClick={() => setShowCreateModal(true)}
-            className="px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition flex items-center gap-2"
-          >
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-            </svg>
-            Create Table
-          </button>
+          <div style={{ height: 1, background: "linear-gradient(90deg, rgba(201,168,76,0.3), transparent)", marginTop: 20 }} />
         </div>
 
-        {tables.length === 0 ? (
-          <div className="bg-gray-800/50 rounded-xl border border-gray-700 p-12 text-center">
-            <p className="text-gray-400">No tables yet. Create your first table to get started.</p>
+        {/* STATS ROW */}
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(160px, 1fr))", gap: 12, marginBottom: 24 }}>
+          {[
+            { label: "Total Tables", value: tables.length, icon: "🪑", color: "#c9a84c" },
+            { label: "Active", value: tables.filter(t => t.isActive).length, icon: "✅", color: "#10b981" },
+            { label: "Inactive", value: tables.filter(t => !t.isActive).length, icon: "⏸", color: "#8a8070" },
+            { label: "Assigned", value: tables.filter(t => t.assignedWaiterId).length, icon: "👤", color: "#818cf8" },
+          ].map(s => (
+            <div key={s.label} style={{ background: "#161410", border: "1px solid rgba(245,240,232,0.07)", borderRadius: 14, padding: "16px 18px", display: "flex", alignItems: "center", gap: 12 }}>
+              <span style={{ fontSize: 22 }}>{s.icon}</span>
+              <div>
+                <p style={{ fontSize: 22, fontWeight: 700, color: s.color, margin: 0, fontFamily: "'Playfair Display', serif" }}>{s.value}</p>
+                <p style={{ fontSize: 11, color: "#8a8070", margin: 0 }}>{s.label}</p>
+              </div>
+            </div>
+          ))}
+        </div>
+
+        {/* CONTENT */}
+        {loading ? (
+          <div style={{ display: "flex", alignItems: "center", justifyContent: "center", padding: "80px 0", gap: 12, color: "#8a8070" }}>
+            <svg style={{ animation: "spin 0.8s linear infinite" }} width="20" height="20" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeDashoffset="10" /></svg>
+            Loading tables...
+          </div>
+        ) : error ? (
+          <div style={{ padding: "16px 20px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 14, color: "#fca5a5", display: "flex", gap: 10 }}>
+            <span>⚠</span>{error}
+          </div>
+        ) : tables.length === 0 ? (
+          <div style={{ background: "#161410", border: "1px solid rgba(245,240,232,0.07)", borderRadius: 16, padding: "64px 24px", textAlign: "center" }}>
+            <div style={{ fontSize: 48, marginBottom: 16 }}>🪑</div>
+            <p style={{ color: "#f5f0e8", fontWeight: 600, fontSize: 16, marginBottom: 8 }}>No tables yet</p>
+            <p style={{ color: "#8a8070", fontSize: 13, marginBottom: 24 }}>Create your first table to generate a QR code</p>
+            <button onClick={() => setShowCreateModal(true)} style={{ padding: "10px 24px", background: "#c9a84c", color: "#0e0e0e", border: "none", borderRadius: 10, fontSize: 14, fontWeight: 700, cursor: "pointer", fontFamily: "inherit" }}>
+              Create First Table
+            </button>
           </div>
         ) : (
-          <div className="bg-gray-800/50 rounded-xl border border-gray-700 overflow-hidden">
-            <table className="w-full">
-              <thead className="bg-gray-900/50">
-                <tr>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Table</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Assigned Waiter</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Status</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Created</th>
-                  <th className="px-6 py-4 text-left text-xs font-semibold text-gray-400 uppercase tracking-wider">Actions</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-gray-700/50">
-                {tables.map((t) => (
-                  <tr key={t._id} className="hover:bg-gray-700/30 transition-colors">
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 bg-gradient-to-br from-blue-500 to-purple-600 rounded-lg flex items-center justify-center">
-                          <span className="text-white font-bold text-sm">
-                            {t.tableCode.substring(0, 2).toUpperCase()}
-                          </span>
-                        </div>
-                        <span className="text-white font-semibold">{t.tableCode}</span>
-                      </div>
-                    </td>
+          <div style={{ background: "#161410", border: "1px solid rgba(245,240,232,0.07)", borderRadius: 16, overflow: "hidden" }}>
+            {/* Table header */}
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr 100px 140px 220px", gap: 16, padding: "12px 20px", background: "rgba(255,255,255,0.02)", borderBottom: "1px solid rgba(245,240,232,0.06)" }}>
+              {["Table", "Assign Waiter", "Status", "Created", "Actions"].map(h => (
+                <span key={h} style={{ fontSize: 11, fontWeight: 600, color: "#8a8070", letterSpacing: 0.8, textTransform: "uppercase" }}>{h}</span>
+              ))}
+            </div>
 
-                    {/* ✅ FIX: Show phone instead of email — waiters don't have email */}
-                    <td className="px-6 py-4">
-                      <div className="flex items-center gap-2">
-                        <select
-                          value={t.assignedWaiterId || ""}
-                          onChange={(e) => assignWaiter(t._id, e.target.value || null)}
-                          disabled={assigningId === t._id}
-                          className="bg-gray-900/50 border border-gray-700 text-white rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                        >
-                          <option value="">Unassigned</option>
-                          {waiters.map((w) => (
-                            <option key={w._id} value={w._id}>
-                              {/* ✅ FIX: w.phone not w.email */}
-                              {w.name} ({w.phone || "no phone"})
-                            </option>
-                          ))}
-                        </select>
-                        {assigningId === t._id && (
-                          <span className="text-xs text-gray-400">Saving...</span>
-                        )}
-                      </div>
-                      {waiters.length === 0 && (
-                        <p className="text-xs text-gray-500 mt-1">
-                          No waiters yet. Create them from the Waiters page.
-                        </p>
-                      )}
-                    </td>
+            {tables.map((t, i) => (
+              <div key={t._id} className="tp-row" style={{ display: "grid", gridTemplateColumns: "1fr 1.5fr 100px 140px 220px", gap: 16, padding: "14px 20px", borderBottom: i < tables.length - 1 ? "1px solid rgba(245,240,232,0.05)" : "none", alignItems: "center" }}>
 
-                    <td className="px-6 py-4">
-                      <span className={`inline-flex items-center px-3 py-1 rounded-full text-xs font-medium ${
-                        t.isActive
-                          ? "bg-green-500/20 text-green-400 border border-green-500/30"
-                          : "bg-red-500/20 text-red-400 border border-red-500/30"
-                      }`}>
-                        <span className={`w-1.5 h-1.5 rounded-full mr-2 ${t.isActive ? "bg-green-400" : "bg-red-400"}`} />
-                        {t.isActive ? "Active" : "Inactive"}
-                      </span>
-                    </td>
+                {/* Table name */}
+                <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                  <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(201,168,76,0.1)", border: "1px solid rgba(201,168,76,0.2)", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+                    <span style={{ fontSize: 13, fontWeight: 700, color: "#c9a84c" }}>{t.tableCode.substring(0, 2).toUpperCase()}</span>
+                  </div>
+                  <span style={{ fontWeight: 600, color: "#f5f0e8", fontSize: 14 }}>{t.tableCode}</span>
+                </div>
 
-                    <td className="px-6 py-4 text-gray-400 text-sm">
-                      {new Date(t.createdAt).toLocaleString()}
-                    </td>
+                {/* Waiter assign */}
+                <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                  <select className="tp-select" value={t.assignedWaiterId || ""} onChange={e => assignWaiter(t._id, e.target.value || null)} disabled={assigningId === t._id}
+                    style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(245,240,232,0.08)", color: t.assignedWaiterId ? "#f5f0e8" : "#8a8070", padding: "7px 10px", borderRadius: 10, fontSize: 12, fontFamily: "inherit", cursor: "pointer", width: "100%" }}>
+                    <option value="">Unassigned</option>
+                    {waiters.map(w => <option key={w._id} value={w._id}>{w.name} ({w.phone || "no phone"})</option>)}
+                  </select>
+                  {assigningId === t._id && <span style={{ fontSize: 11, color: "#8a8070", whiteSpace: "nowrap" }}>Saving...</span>}
+                </div>
 
-                    <td className="px-6 py-4">
-                      <div className="flex gap-2">
-                        <button
-                          onClick={() => toggleStatus(t)}
-                          className={`px-4 py-2 rounded-lg text-sm font-medium transition ${
-                            t.isActive
-                              ? "bg-red-500/20 text-red-400 border border-red-500/30 hover:bg-red-500/30"
-                              : "bg-green-500/20 text-green-400 border border-green-500/30 hover:bg-green-500/30"
-                          }`}
-                        >
-                          {t.isActive ? "Deactivate" : "Activate"}
-                        </button>
-                        <button
-                          onClick={() => openQr(t)}
-                          className="px-4 py-2 bg-gray-700/50 hover:bg-gray-700 text-gray-300 rounded-lg text-sm font-medium border border-gray-600 transition"
-                        >
-                          View QR
-                        </button>
-                        <button
-                          onClick={() => { if (!confirm("Delete this table?")) return; deleteTable(t._id); }}
-                          className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 text-red-400 rounded-lg text-sm font-medium border border-red-500/30 transition"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+                {/* Status */}
+                <div>
+                  <span style={{ display: "inline-flex", alignItems: "center", gap: 5, padding: "4px 10px", borderRadius: 999, fontSize: 11, fontWeight: 600, background: t.isActive ? "rgba(16,185,129,0.1)" : "rgba(239,68,68,0.1)", border: `1px solid ${t.isActive ? "rgba(16,185,129,0.25)" : "rgba(239,68,68,0.25)"}`, color: t.isActive ? "#10b981" : "#ef4444" }}>
+                    <span style={{ width: 5, height: 5, borderRadius: "50%", background: "currentColor" }} />
+                    {t.isActive ? "Active" : "Inactive"}
+                  </span>
+                </div>
+
+                {/* Created */}
+                <span style={{ fontSize: 12, color: "#8a8070" }}>{new Date(t.createdAt).toLocaleDateString()}</span>
+
+                {/* Actions */}
+                <div style={{ display: "flex", gap: 6 }}>
+                  <button className="tp-btn" onClick={() => toggleStatus(t)}
+                    style={{ padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", background: t.isActive ? "rgba(239,68,68,0.08)" : "rgba(16,185,129,0.08)", border: `1px solid ${t.isActive ? "rgba(239,68,68,0.2)" : "rgba(16,185,129,0.2)"}`, color: t.isActive ? "#fca5a5" : "#6ee7b7" }}>
+                    {t.isActive ? "Deactivate" : "Activate"}
+                  </button>
+                  <button className="tp-btn" onClick={() => openQr(t)}
+                    style={{ padding: "6px 12px", borderRadius: 8, fontSize: 12, fontWeight: 500, cursor: "pointer", fontFamily: "inherit", background: "rgba(201,168,76,0.08)", border: "1px solid rgba(201,168,76,0.2)", color: "#c9a84c" }}>
+                    QR Code
+                  </button>
+                  <button className="tp-btn" onClick={() => { if (!confirm("Delete this table?")) return; deleteTable(t._id); }}
+                    style={{ padding: "6px 10px", borderRadius: 8, fontSize: 12, cursor: "pointer", fontFamily: "inherit", background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)", color: "#f87171" }}>
+                    <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" /></svg>
+                  </button>
+                </div>
+              </div>
+            ))}
           </div>
         )}
       </div>
 
       {/* CREATE MODAL */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md border border-gray-700">
-            <div className="p-6 border-b border-gray-700">
-              <h2 className="text-2xl font-bold text-white">Create New Table</h2>
-              <p className="text-gray-400 text-sm mt-1">Add a new table to your restaurant</p>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20 }} onClick={e => { if (e.target === e.currentTarget) { setShowCreateModal(false); setTableCode(""); } }}>
+          <div style={{ background: "#161410", border: "1px solid rgba(245,240,232,0.1)", borderRadius: 20, width: "100%", maxWidth: 420, overflow: "hidden", animation: "modalIn 0.3s cubic-bezier(0.16,1,0.3,1)", boxShadow: "0 40px 80px rgba(0,0,0,0.5)", fontFamily: "'DM Sans', sans-serif" }}>
+            <div style={{ height: 1, background: "linear-gradient(90deg, transparent, rgba(201,168,76,0.5), transparent)" }} />
+            <div style={{ padding: "28px 28px 20px" }}>
+              <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 700, color: "#f5f0e8", margin: "0 0 6px" }}>Create New Table</h2>
+              <p style={{ color: "#8a8070", fontSize: 13, margin: 0, fontWeight: 300 }}>Add a table and generate a QR code for it</p>
             </div>
-            <div className="p-6">
-              <label className="block text-sm font-medium text-gray-300 mb-2">Table Code</label>
-              <input
-                className="w-full px-4 py-3 bg-gray-900/50 border border-gray-700 rounded-lg text-white placeholder-gray-500 focus:outline-none focus:ring-2 focus:ring-blue-500 transition"
-                placeholder="e.g. T1, T2, A1..."
-                value={tableCode}
-                onChange={(e) => setTableCode(e.target.value)}
-                onKeyDown={(e) => e.key === "Enter" && createTable()}
-                autoFocus
-              />
+            <div style={{ padding: "0 28px 24px" }}>
+              <label style={{ display: "block", fontSize: 11, fontWeight: 600, color: "#8a8070", letterSpacing: 1, textTransform: "uppercase", marginBottom: 8 }}>Table Code</label>
+              <input value={tableCode} onChange={e => setTableCode(e.target.value)} onKeyDown={e => e.key === "Enter" && createTable()} placeholder="e.g. T1, T2, A1..." autoFocus
+                style={{ width: "100%", padding: "13px 16px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(245,240,232,0.08)", borderRadius: 12, color: "#f5f0e8", fontSize: 14, fontFamily: "inherit", outline: "none", boxSizing: "border-box", transition: "border-color 0.2s" }}
+                onFocus={e => e.target.style.borderColor = "rgba(201,168,76,0.4)"}
+                onBlur={e => e.target.style.borderColor = "rgba(245,240,232,0.08)"} />
             </div>
-            <div className="flex gap-3 p-6 bg-gray-900/30">
-              <button
-                onClick={() => { setShowCreateModal(false); setTableCode(""); }}
-                className="flex-1 px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition"
-              >
+            <div style={{ display: "flex", gap: 10, padding: "16px 28px 24px" }}>
+              <button onClick={() => { setShowCreateModal(false); setTableCode(""); }}
+                style={{ flex: 1, padding: "12px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(245,240,232,0.08)", borderRadius: 12, color: "#8a8070", fontSize: 14, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>
                 Cancel
               </button>
-              <button
-                onClick={createTable}
-                disabled={creating || !tableCode.trim()}
-                className="flex-1 px-4 py-3 bg-blue-600 hover:bg-blue-700 text-white rounded-lg font-medium transition disabled:opacity-50"
-              >
+              <button onClick={createTable} disabled={creating || !tableCode.trim()}
+                style={{ flex: 1, padding: "12px", background: tableCode.trim() ? "#c9a84c" : "rgba(201,168,76,0.2)", border: "none", borderRadius: 12, color: tableCode.trim() ? "#0e0e0e" : "#8a8070", fontSize: 14, fontWeight: 700, cursor: tableCode.trim() ? "pointer" : "not-allowed", fontFamily: "inherit", transition: "all 0.2s" }}>
                 {creating ? "Creating..." : "Create Table"}
               </button>
             </div>
@@ -330,53 +270,47 @@ export default function AdminTablesPage() {
 
       {/* QR MODAL */}
       {qrModal && (
-        <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-gray-800 rounded-2xl shadow-2xl w-full max-w-md border border-gray-700">
-            <div className="p-6 border-b border-gray-700">
-              <h2 className="text-2xl font-bold text-white">QR Code</h2>
-              <p className="text-gray-400 text-sm mt-1">Table: {qrModal.tableCode}</p>
+        <div style={{ position: "fixed", inset: 0, background: "rgba(0,0,0,0.7)", display: "flex", alignItems: "center", justifyContent: "center", zIndex: 9999, padding: 20 }} onClick={e => { if (e.target === e.currentTarget) { setQrModal(null); setQrData(null); } }}>
+          <div style={{ background: "#161410", border: "1px solid rgba(245,240,232,0.1)", borderRadius: 20, width: "100%", maxWidth: 420, overflow: "hidden", animation: "modalIn 0.3s cubic-bezier(0.16,1,0.3,1)", boxShadow: "0 40px 80px rgba(0,0,0,0.5)", fontFamily: "'DM Sans', sans-serif" }}>
+            <div style={{ height: 1, background: "linear-gradient(90deg, transparent, rgba(201,168,76,0.5), transparent)" }} />
+            <div style={{ padding: "28px 28px 20px" }}>
+              <h2 style={{ fontFamily: "'Playfair Display', serif", fontSize: 22, fontWeight: 700, color: "#f5f0e8", margin: "0 0 4px" }}>QR Code</h2>
+              <p style={{ color: "#8a8070", fontSize: 13, margin: 0 }}>Table <span style={{ color: "#c9a84c", fontWeight: 600 }}>{qrModal.tableCode}</span></p>
             </div>
-            <div className="p-8">
-              {qrLoading && (
-                <div className="text-center py-8">
-                  <div className="inline-block w-12 h-12 border-4 border-blue-500 border-t-transparent rounded-full animate-spin mb-4" />
-                  <p className="text-gray-400">Generating QR code...</p>
+            <div style={{ padding: "0 28px 24px", textAlign: "center" }}>
+              {qrLoading ? (
+                <div style={{ padding: "40px 0", display: "flex", flexDirection: "column", alignItems: "center", gap: 12, color: "#8a8070" }}>
+                  <svg style={{ animation: "spin 0.8s linear infinite" }} width="24" height="24" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeDashoffset="10" /></svg>
+                  Generating QR code...
                 </div>
-              )}
-              {qrData?.qrDataUrl && (
-                <div className="text-center">
-                  <div className="bg-white p-4 rounded-xl inline-block mb-6 shadow-lg">
-                    <img src={qrData.qrDataUrl} alt="QR Code" className="w-64 h-64" />
+              ) : qrData?.qrDataUrl ? (
+                <>
+                  <div style={{ background: "#fff", padding: 16, borderRadius: 16, display: "inline-block", marginBottom: 20 }}>
+                    <img src={qrData.qrDataUrl} alt="QR Code" style={{ width: 220, height: 220, display: "block" }} />
                   </div>
-                  <a
-                    href={qrData.qrDataUrl}
-                    download={`table-${qrModal.tableCode}.png`}
-                    className="block mb-4 px-6 py-3 bg-blue-600 hover:bg-blue-700 text-white font-medium rounded-lg transition"
-                  >
+                  <a href={qrData.qrDataUrl} download={`table-${qrModal.tableCode}.png`}
+                    style={{ display: "block", padding: "12px", background: "#c9a84c", color: "#0e0e0e", borderRadius: 12, fontSize: 14, fontWeight: 700, textDecoration: "none", marginBottom: 12 }}>
                     Download QR Code
                   </a>
-                  <div className="bg-gray-900/50 p-3 rounded-lg">
-                    <p className="text-xs text-gray-400 break-all font-mono">{qrData.qrUrl}</p>
+                  <div style={{ padding: "10px 14px", background: "rgba(255,255,255,0.03)", border: "1px solid rgba(245,240,232,0.06)", borderRadius: 10 }}>
+                    <p style={{ fontSize: 11, color: "#8a8070", wordBreak: "break-all", fontFamily: "monospace", margin: 0 }}>{qrData.qrUrl}</p>
                   </div>
-                </div>
-              )}
-              {!qrLoading && !qrData?.qrDataUrl && (
-                <div className="bg-red-500/10 border border-red-500 rounded-lg p-6 text-center">
-                  <p className="text-red-400 text-sm">Failed to load QR code.</p>
+                </>
+              ) : (
+                <div style={{ padding: "24px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 12, color: "#fca5a5", fontSize: 13 }}>
+                  Failed to load QR code.
                 </div>
               )}
             </div>
-            <div className="p-6 bg-gray-900/30">
-              <button
-                onClick={() => { setQrModal(null); setQrData(null); }}
-                className="w-full px-4 py-3 bg-gray-700 hover:bg-gray-600 text-white rounded-lg font-medium transition"
-              >
+            <div style={{ padding: "0 28px 24px" }}>
+              <button onClick={() => { setQrModal(null); setQrData(null); }}
+                style={{ width: "100%", padding: "12px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(245,240,232,0.08)", borderRadius: 12, color: "#8a8070", fontSize: 14, fontWeight: 500, cursor: "pointer", fontFamily: "inherit" }}>
                 Close
               </button>
             </div>
           </div>
         </div>
       )}
-    </div>
+    </>
   );
 }
