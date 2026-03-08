@@ -35,6 +35,9 @@ function playChime(type = "call") {
 
 function moneyINR(n) { return `₹${Number(n || 0).toFixed(2)}`; }
 
+// Orders with these statuses are removed from waiter view entirely
+const HIDDEN_STATUSES = ["REJECTED", "CANCELLED"];
+
 function StatusDot({ status }) {
   const cfg = {
     connected:    { color: "#10b981", label: "Live",         pulse: true },
@@ -51,13 +54,13 @@ function StatusDot({ status }) {
 
 function OrderStatusBadge({ status }) {
   const map = {
-    PENDING:   { bg: "rgba(255,255,255,0.05)", color: "#8a8070",  border: "rgba(255,255,255,0.08)", label: "Pending" },
-    ACCEPTED:  { bg: "rgba(234,179,8,0.1)",   color: "#eab308",  border: "rgba(234,179,8,0.25)",   label: "Accepted" },
-    IN_KITCHEN:{ bg: "rgba(59,130,246,0.1)",  color: "#60a5fa",  border: "rgba(59,130,246,0.25)",  label: "In Kitchen" },
-    PREPARING: { bg: "rgba(59,130,246,0.1)",  color: "#60a5fa",  border: "rgba(59,130,246,0.25)",  label: "Preparing" },
-    READY:     { bg: "rgba(168,85,247,0.1)",  color: "#a855f7",  border: "rgba(168,85,247,0.25)",  label: "Ready" },
-    SERVED:    { bg: "rgba(16,185,129,0.1)",  color: "#10b981",  border: "rgba(16,185,129,0.25)",  label: "Served" },
-    COMPLETED: { bg: "rgba(201,168,76,0.1)",  color: "#c9a84c",  border: "rgba(201,168,76,0.25)",  label: "Completed" },
+    PENDING:    { bg: "rgba(255,255,255,0.05)", color: "#8a8070",  border: "rgba(255,255,255,0.08)", label: "Pending" },
+    ACCEPTED:   { bg: "rgba(234,179,8,0.1)",   color: "#eab308",  border: "rgba(234,179,8,0.25)",   label: "Accepted" },
+    IN_KITCHEN: { bg: "rgba(59,130,246,0.1)",  color: "#60a5fa",  border: "rgba(59,130,246,0.25)",  label: "In Kitchen" },
+    PREPARING:  { bg: "rgba(59,130,246,0.1)",  color: "#60a5fa",  border: "rgba(59,130,246,0.25)",  label: "Preparing" },
+    READY:      { bg: "rgba(168,85,247,0.1)",  color: "#a855f7",  border: "rgba(168,85,247,0.25)",  label: "Ready" },
+    SERVED:     { bg: "rgba(16,185,129,0.1)",  color: "#10b981",  border: "rgba(16,185,129,0.25)",  label: "Served" },
+    COMPLETED:  { bg: "rgba(201,168,76,0.1)",  color: "#c9a84c",  border: "rgba(201,168,76,0.25)",  label: "Completed" },
   };
   const s = map[status] || map.PENDING;
   return (
@@ -71,7 +74,6 @@ function OrderStatusBadge({ status }) {
 function OrderRow({ order, orderIndex, onDeliver, delivering }) {
   const canDeliver = ["ACCEPTED", "IN_KITCHEN", "READY"].includes(order.status);
   const isServed   = order.status === "SERVED";
-
   return (
     <div style={{
       background: isServed ? "rgba(16,185,129,0.03)" : "rgba(255,255,255,0.02)",
@@ -88,7 +90,7 @@ function OrderRow({ order, orderIndex, onDeliver, delivering }) {
         <OrderStatusBadge status={order.status} />
       </div>
 
-      {/* Items */}
+      {/* Items — name, qty, price per line */}
       <div style={{ display: "flex", flexDirection: "column", gap: 6, marginBottom: 10 }}>
         {(order.items || []).map((item, idx) => (
           <div key={idx} style={{ display: "flex", alignItems: "center", justifyContent: "space-between" }}>
@@ -101,10 +103,8 @@ function OrderRow({ order, orderIndex, onDeliver, delivering }) {
         ))}
       </div>
 
-      {/* Footer: total + deliver button */}
-      <div style={{ paddingTop: 8, borderTop: "1px solid rgba(245,240,232,0.05)", display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-        <span style={{ fontSize: 13, fontWeight: 700, color: "#c9a84c" }}>{moneyINR(order.totalAmount)}</span>
-
+      {/* Footer: action only — standalone order total removed, item prices above are kept */}
+      <div style={{ paddingTop: 8, borderTop: "1px solid rgba(245,240,232,0.05)", display: "flex", justifyContent: "flex-end", alignItems: "center" }}>
         {isServed ? (
           <span style={{ fontSize: 11, color: "#10b981", fontWeight: 600, display: "flex", alignItems: "center", gap: 4 }}>
             <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
@@ -119,13 +119,9 @@ function OrderRow({ order, orderIndex, onDeliver, delivering }) {
               padding: "7px 14px",
               background: delivering === order._id ? "rgba(16,185,129,0.1)" : "rgba(16,185,129,0.15)",
               border: "1px solid rgba(16,185,129,0.35)",
-              borderRadius: 10,
-              color: "#10b981",
-              fontSize: 12,
-              fontWeight: 700,
+              borderRadius: 10, color: "#10b981", fontSize: 12, fontWeight: 700,
               cursor: delivering === order._id ? "not-allowed" : "pointer",
-              fontFamily: "inherit",
-              transition: "all 0.2s",
+              fontFamily: "inherit", transition: "all 0.2s",
               opacity: delivering === order._id ? 0.6 : 1,
             }}
           >
@@ -150,20 +146,21 @@ function OrderRow({ order, orderIndex, onDeliver, delivering }) {
 }
 
 // ─── TABLE ORDER CARD ─────────────────────────────────────────────────────────
-function TableOrderCard({ tableCode, orders, totalAmount, isNew, onDeliver, delivering }) {
+function TableOrderCard({ tableCode, orders, isNew, onDeliver, delivering }) {
   const [expanded, setExpanded] = useState(true);
   const allServed = orders.every(o => o.status === "SERVED");
-
+  // Calculate live from orders so it stays accurate after rejections/removals
+  const totalAmount = orders.reduce((sum, o) =>
+    sum + (o.items || []).reduce((s, it) => s + (it.price || 0) * (it.quantity || 1), 0), 0
+  );
   return (
     <div style={{
       background: isNew ? "rgba(201,168,76,0.04)" : "#161410",
       border: `1px solid ${isNew ? "rgba(201,168,76,0.25)" : allServed ? "rgba(16,185,129,0.15)" : "rgba(245,240,232,0.07)"}`,
-      borderRadius: 16,
-      overflow: "hidden",
+      borderRadius: 16, overflow: "hidden",
       animation: "wdSlideIn 0.35s cubic-bezier(0.16,1,0.3,1)",
       transition: "border-color 0.3s",
     }}>
-      {/* Table header */}
       <button
         onClick={() => setExpanded(p => !p)}
         style={{ width: "100%", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "14px 18px", background: "transparent", border: "none", cursor: "pointer", textAlign: "left" }}
@@ -175,7 +172,7 @@ function TableOrderCard({ tableCode, orders, totalAmount, isNew, onDeliver, deli
           <div>
             <p style={{ fontSize: 14, fontWeight: 700, color: "#f5f0e8", margin: 0 }}>Table {tableCode}</p>
             <p style={{ fontSize: 11, color: "#8a8070", margin: 0 }}>
-              {orders.length} order{orders.length !== 1 ? "s" : ""} · {moneyINR(totalAmount)}
+              {orders.length} order{orders.length !== 1 ? "s" : ""}
               {allServed && <span style={{ color: "#10b981", marginLeft: 6 }}>· All delivered ✓</span>}
             </p>
           </div>
@@ -185,19 +182,12 @@ function TableOrderCard({ tableCode, orders, totalAmount, isNew, onDeliver, deli
           <svg width="14" height="14" fill="none" stroke="#8a8070" viewBox="0 0 24 24" style={{ transform: expanded ? "rotate(180deg)" : "none", transition: "transform 0.2s" }}><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" /></svg>
         </div>
       </button>
-
       {expanded && (
         <div style={{ padding: "0 18px 14px", display: "flex", flexDirection: "column", gap: 10 }}>
           {orders.map((order, oi) => (
-            <OrderRow
-              key={order._id}
-              order={order}
-              orderIndex={oi}
-              onDeliver={onDeliver}
-              delivering={delivering}
-            />
+            <OrderRow key={order._id} order={order} orderIndex={oi} onDeliver={onDeliver} delivering={delivering} />
           ))}
-          {/* Grand total */}
+          {/* Table Total */}
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 14px", background: "rgba(201,168,76,0.06)", border: "1px solid rgba(201,168,76,0.15)", borderRadius: 10 }}>
             <span style={{ fontSize: 12, color: "#c8bfb0", fontWeight: 600 }}>Table Total</span>
             <span style={{ fontFamily: "'Playfair Display', serif", fontSize: 18, fontWeight: 700, color: "#c9a84c" }}>{moneyINR(totalAmount)}</span>
@@ -257,8 +247,7 @@ export default function WaiterDashboardPage() {
   const [events, setEvents]                 = useState([]);
   const [status, setStatus]                 = useState("disconnected");
   const [activeTab, setActiveTab]           = useState("orders");
-  const [delivering, setDelivering]         = useState(null); // orderId being marked
-
+  const [delivering, setDelivering]         = useState(null);
   const socketRef = useRef(null);
 
   useEffect(() => {
@@ -267,7 +256,6 @@ export default function WaiterDashboardPage() {
     setToken(t);
   }, []);
 
-  // ── Fetch assigned tables ─────────────────────────────────────────────────
   const fetchMyTables = useCallback(async () => {
     const t = getWaiterToken();
     if (!t) return;
@@ -282,7 +270,6 @@ export default function WaiterDashboardPage() {
     } catch { setTables([]); } finally { setLoadingTables(false); }
   }, []);
 
-  // ── Fetch orders ──────────────────────────────────────────────────────────
   const fetchTableOrders = useCallback(async () => {
     const t = getWaiterToken();
     if (!t) return;
@@ -299,7 +286,6 @@ export default function WaiterDashboardPage() {
 
   useEffect(() => { if (token) { fetchMyTables(); fetchTableOrders(); } }, [token]);
 
-  // ── Mark order as delivered ───────────────────────────────────────────────
   const handleDeliver = useCallback(async (orderId) => {
     const t = getWaiterToken();
     if (!t || delivering) return;
@@ -311,12 +297,9 @@ export default function WaiterDashboardPage() {
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(data?.message || "Failed to mark delivered");
-      // Optimistically update local state
       setTableOrders(prev => prev.map(group => ({
         ...group,
-        orders: group.orders.map(o =>
-          o._id === orderId ? { ...o, status: "SERVED" } : o
-        ),
+        orders: group.orders.map(o => o._id === orderId ? { ...o, status: "SERVED" } : o),
       })));
     } catch (e) {
       alert(e.message);
@@ -324,6 +307,22 @@ export default function WaiterDashboardPage() {
       setDelivering(null);
     }
   }, [delivering]);
+
+  // ── Helper: apply order update to state ───────────────────────────────────
+  // If status is REJECTED/CANCELLED → remove order (and table if empty)
+  // Otherwise → update status in place
+  function applyOrderUpdate(prev, orderId, newStatus) {
+    const id = orderId?.toString();
+    const shouldRemove = HIDDEN_STATUSES.includes(newStatus);
+    return prev
+      .map(group => ({
+        ...group,
+        orders: shouldRemove
+          ? group.orders.filter(o => o._id?.toString() !== id)
+          : group.orders.map(o => o._id?.toString() === id ? { ...o, status: newStatus } : o),
+      }))
+      .filter(group => group.orders.length > 0); // remove table card if no orders left
+  }
 
   // ── Socket ────────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -342,7 +341,6 @@ export default function WaiterDashboardPage() {
     socket.on("disconnect", () => setStatus("disconnected"));
     socket.on("connect_error", () => setStatus("error"));
 
-    // ── Waiter called ─────────────────────────────────────────────────────
     socket.on("waiter:called", (payload) => {
       playChime("call");
       setEvents(prev => {
@@ -352,7 +350,6 @@ export default function WaiterDashboardPage() {
       setActiveTab("notifications");
     });
 
-    // ── Bill requested ────────────────────────────────────────────────────
     socket.on("waiter:bill_requested", (payload) => {
       playChime("bill");
       setEvents(prev => {
@@ -362,76 +359,38 @@ export default function WaiterDashboardPage() {
       setActiveTab("notifications");
     });
 
-    // ── New order placed ──────────────────────────────────────────────────
     socket.on("waiter:new_order", (payload) => {
       setTableOrders(prev => {
         const existing = prev.find(g => g.tableId === payload.tableId);
+        const newOrder = { _id: payload.orderId, items: payload.items, totalAmount: payload.totalAmount, status: "PENDING", createdAt: payload.createdAt };
         if (existing) {
-          const newOrder = {
-            _id: payload.orderId,
-            items: payload.items,
-            totalAmount: payload.totalAmount,
-            status: "PENDING",
-            createdAt: payload.createdAt,
-          };
           return prev.map(g => g.tableId === payload.tableId
             ? { ...g, orders: [...g.orders, newOrder], totalAmount: g.totalAmount + (payload.totalAmount || 0) }
             : g
           );
-        } else {
-          return [...prev, {
-            tableId: payload.tableId,
-            tableCode: payload.tableCode,
-            orders: [{
-              _id: payload.orderId,
-              items: payload.items,
-              totalAmount: payload.totalAmount,
-              status: "PENDING",
-              createdAt: payload.createdAt,
-            }],
-            totalAmount: payload.totalAmount || 0,
-          }];
         }
+        return [...prev, { tableId: payload.tableId, tableCode: payload.tableCode, orders: [newOrder], totalAmount: payload.totalAmount || 0 }];
       });
       setNewTableIds(prev => new Set([...prev, payload.tableId]));
-      setTimeout(() => {
-        setNewTableIds(prev => { const s = new Set(prev); s.delete(payload.tableId); return s; });
-      }, 10000);
+      setTimeout(() => setNewTableIds(prev => { const s = new Set(prev); s.delete(payload.tableId); return s; }), 10000);
       setActiveTab("orders");
     });
 
-    // ── Order status updated by admin (ACCEPTED, IN_KITCHEN, READY etc.) ─
+    // Admin changes order status → update or remove from waiter view
     socket.on("order:updated", (order) => {
       if (!order?._id) return;
-      const updatedId = order._id?.toString();
-      setTableOrders(prev => prev.map(group => ({
-        ...group,
-        orders: group.orders.map(o =>
-          o._id?.toString() === updatedId ? { ...o, status: order.status } : o
-        ),
-      })));
+      setTableOrders(prev => applyOrderUpdate(prev, order._id, order.status));
     });
 
-    // ── Order delivered by this waiter on another device ─────────────────
+    // Waiter marks served on another device
     socket.on("waiter:order_updated", ({ orderId, status }) => {
-      setTableOrders(prev => prev.map(group => ({
-        ...group,
-        orders: group.orders.map(o =>
-          o._id === orderId || o._id?.toString() === orderId
-            ? { ...o, status }
-            : o
-        ),
-      })));
+      setTableOrders(prev => applyOrderUpdate(prev, orderId, status));
     });
 
-    // ── Bill closed — clear table ─────────────────────────────────────────
     socket.on("waiter:bill_closed", (payload) => {
       setTableOrders(prev => prev.filter(g => g.tableId !== payload.tableId));
       setNewTableIds(prev => { const s = new Set(prev); s.delete(payload.tableId); return s; });
-      setEvents(prev => [
-        { id: `${Date.now()}_${Math.random()}`, type: "BILL_CLOSED", payload, ts: new Date().toISOString(), blurred: true },
-        ...prev,
-      ]);
+      setEvents(prev => [{ id: `${Date.now()}_${Math.random()}`, type: "BILL_CLOSED", payload, ts: new Date().toISOString(), blurred: true }, ...prev]);
     });
 
     return () => { socket.disconnect(); socketRef.current = null; };
@@ -450,8 +409,8 @@ export default function WaiterDashboardPage() {
 
   if (!token) return null;
 
-  const activeNotifs    = events.filter(ev => !ev.blurred);
-  const totalOrderCount = tableOrders.reduce((s, g) => s + g.orders.length, 0);
+  const activeNotifs      = events.filter(ev => !ev.blurred);
+  const totalOrderCount   = tableOrders.reduce((s, g) => s + g.orders.length, 0);
   const pendingNotifCount = activeNotifs.length;
 
   return (
@@ -469,8 +428,7 @@ export default function WaiterDashboardPage() {
         .wd-notif { animation: wdSlideIn 0.35s cubic-bezier(0.16,1,0.3,1); }
       `}</style>
       <div style={{ minHeight: "100vh", background: "#0e0e0e", color: "#f5f0e8", fontFamily: "'DM Sans', sans-serif" }}>
-
-        {/* ── TOPBAR ── */}
+        {/* TOPBAR */}
         <header style={{ height: 60, background: "#111009", borderBottom: "1px solid rgba(245,240,232,0.06)", display: "flex", alignItems: "center", justifyContent: "space-between", padding: "0 20px", position: "sticky", top: 0, zIndex: 50 }}>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <div style={{ width: 30, height: 30, borderRadius: 8, background: "rgba(201,168,76,0.15)", border: "1px solid rgba(201,168,76,0.25)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -483,8 +441,7 @@ export default function WaiterDashboardPage() {
           </div>
           <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
             <StatusDot status={status} />
-            <button className="wd-btn" onClick={logout}
-              style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 10, color: "#fca5a5", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
+            <button className="wd-btn" onClick={logout} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 14px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 10, color: "#fca5a5", fontSize: 13, fontWeight: 500, cursor: "pointer" }}>
               <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" /></svg>
               Logout
             </button>
@@ -492,8 +449,7 @@ export default function WaiterDashboardPage() {
         </header>
 
         <div style={{ maxWidth: 720, margin: "0 auto", padding: "24px 16px 40px" }}>
-
-          {/* ── PAGE HEADER ── */}
+          {/* PAGE HEADER */}
           <div style={{ marginBottom: 24, animation: "wdFadeUp 0.4s cubic-bezier(0.16,1,0.3,1)" }}>
             <p style={{ fontSize: 11, letterSpacing: 2.5, textTransform: "uppercase", color: "#c9a84c", fontWeight: 600, marginBottom: 4 }}>Waiter Dashboard</p>
             <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 26, fontWeight: 700, color: "#f5f0e8", margin: "0 0 4px", letterSpacing: -0.5 }}>My Tables</h1>
@@ -501,7 +457,7 @@ export default function WaiterDashboardPage() {
             <div style={{ height: 1, background: "linear-gradient(90deg, rgba(201,168,76,0.3), transparent)", marginTop: 16 }} />
           </div>
 
-          {/* ── ALERT BANNER ── */}
+          {/* ALERT BANNER */}
           {pendingNotifCount > 0 && (
             <div onClick={() => setActiveTab("notifications")} style={{ padding: "12px 16px", background: "rgba(201,168,76,0.07)", border: "1px solid rgba(201,168,76,0.25)", borderRadius: 12, marginBottom: 14, display: "flex", alignItems: "center", gap: 12, cursor: "pointer", animation: "wdFadeUp 0.3s cubic-bezier(0.16,1,0.3,1)" }}>
               <div style={{ width: 34, height: 34, borderRadius: "50%", background: "rgba(201,168,76,0.15)", border: "1px solid rgba(201,168,76,0.3)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16, animation: "wdRing 1.5s infinite", flexShrink: 0 }}>🔔</div>
@@ -513,12 +469,11 @@ export default function WaiterDashboardPage() {
             </div>
           )}
 
-          {/* ── ASSIGNED TABLES STRIP ── */}
+          {/* ASSIGNED TABLES STRIP */}
           <div style={{ background: "#161410", border: "1px solid rgba(245,240,232,0.07)", borderRadius: 14, padding: "14px 16px", marginBottom: 18, animation: "wdFadeUp 0.4s cubic-bezier(0.16,1,0.3,1) 0.04s both" }}>
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 10 }}>
               <p style={{ fontSize: 12, fontWeight: 600, color: "#8a8070", margin: 0, textTransform: "uppercase", letterSpacing: 1 }}>Assigned Tables · {tables.length}</p>
-              <button className="wd-btn" onClick={() => { fetchMyTables(); fetchTableOrders(); }}
-                style={{ padding: "4px 12px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(245,240,232,0.08)", borderRadius: 8, color: "#8a8070", fontSize: 11, cursor: "pointer" }}>
+              <button className="wd-btn" onClick={() => { fetchMyTables(); fetchTableOrders(); }} style={{ padding: "4px 12px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(245,240,232,0.08)", borderRadius: 8, color: "#8a8070", fontSize: 11, cursor: "pointer" }}>
                 Refresh
               </button>
             </div>
@@ -543,14 +498,13 @@ export default function WaiterDashboardPage() {
             )}
           </div>
 
-          {/* ── TAB SWITCHER ── */}
+          {/* TAB SWITCHER */}
           <div style={{ display: "flex", gap: 6, marginBottom: 18, background: "rgba(255,255,255,0.03)", border: "1px solid rgba(245,240,232,0.06)", borderRadius: 14, padding: 4 }}>
             {[
               { key: "orders",        label: "Orders",        count: totalOrderCount,   icon: "🧾" },
               { key: "notifications", label: "Notifications", count: pendingNotifCount, icon: "🔔" },
             ].map(tab => (
-              <button key={tab.key} className="wd-tab"
-                onClick={() => setActiveTab(tab.key)}
+              <button key={tab.key} className="wd-tab" onClick={() => setActiveTab(tab.key)}
                 style={{ flex: 1, padding: "10px 12px", borderRadius: 10, fontSize: 13, fontWeight: 600, color: activeTab === tab.key ? "#0e0e0e" : "#8a8070", background: activeTab === tab.key ? "#c9a84c" : "transparent", display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
                 <span>{tab.icon}</span>
                 <span>{tab.label}</span>
@@ -561,15 +515,14 @@ export default function WaiterDashboardPage() {
             ))}
           </div>
 
-          {/* ── ORDERS TAB ── */}
+          {/* ORDERS TAB */}
           {activeTab === "orders" && (
             <div style={{ animation: "wdFadeUp 0.3s cubic-bezier(0.16,1,0.3,1)" }}>
               <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
                 <p style={{ fontSize: 13, color: "#8a8070", margin: 0 }}>
                   {tableOrders.length === 0 ? "No active orders" : `${tableOrders.length} table${tableOrders.length > 1 ? "s" : ""} with open orders`}
                 </p>
-                <button className="wd-btn" onClick={fetchTableOrders}
-                  style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(245,240,232,0.08)", borderRadius: 9, color: "#8a8070", fontSize: 12, cursor: "pointer" }}>
+                <button className="wd-btn" onClick={fetchTableOrders} style={{ display: "flex", alignItems: "center", gap: 6, padding: "6px 12px", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(245,240,232,0.08)", borderRadius: 9, color: "#8a8070", fontSize: 12, cursor: "pointer" }}>
                   {loadingOrders
                     ? <svg style={{ animation: "wdSpin 0.8s linear infinite" }} width="12" height="12" fill="none" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4" strokeDashoffset="10" /></svg>
                     : <svg width="12" height="12" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
@@ -577,7 +530,6 @@ export default function WaiterDashboardPage() {
                   Refresh
                 </button>
               </div>
-
               {tableOrders.length === 0 ? (
                 <div style={{ padding: "56px 24px", textAlign: "center", background: "#161410", border: "1px solid rgba(245,240,232,0.07)", borderRadius: 16 }}>
                   <div style={{ fontSize: 44, marginBottom: 14, opacity: 0.3 }}>🧾</div>
@@ -602,7 +554,7 @@ export default function WaiterDashboardPage() {
             </div>
           )}
 
-          {/* ── NOTIFICATIONS TAB ── */}
+          {/* NOTIFICATIONS TAB */}
           {activeTab === "notifications" && (
             <div style={{ animation: "wdFadeUp 0.3s cubic-bezier(0.16,1,0.3,1)" }}>
               <div style={{ background: "#161410", border: "1px solid rgba(245,240,232,0.07)", borderRadius: 16, overflow: "hidden" }}>
@@ -614,8 +566,7 @@ export default function WaiterDashboardPage() {
                     </p>
                   </div>
                   {events.length > 0 && (
-                    <button className="wd-btn" onClick={() => setEvents([])}
-                      style={{ padding: "5px 12px", background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: 8, color: "#f87171", fontSize: 12, cursor: "pointer" }}>
+                    <button className="wd-btn" onClick={() => setEvents([])} style={{ padding: "5px 12px", background: "rgba(239,68,68,0.06)", border: "1px solid rgba(239,68,68,0.15)", borderRadius: 8, color: "#f87171", fontSize: 12, cursor: "pointer" }}>
                       Clear All
                     </button>
                   )}
