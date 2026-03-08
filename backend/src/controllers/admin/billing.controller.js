@@ -21,11 +21,11 @@ exports.closeBillForTable = async (req, res) => {
   try {
     const { tableId } = req.params;
     const { restaurantId } = req.admin;
+
     const orders = await Order.find({ tableId, restaurantId, billed: false, status: { $nin: ["CANCELLED", "REJECTED"] } });
     if (!orders.length) return res.status(400).json({ message: "No open orders" });
-    const orderIds = orders.map((o) => o._id);
 
-    // Collect unique sessionIds so we can notify each customer
+    const orderIds = orders.map((o) => o._id);
     const sessionIds = [...new Set(orders.map((o) => o.sessionId).filter(Boolean))];
 
     const map = new Map();
@@ -46,6 +46,7 @@ exports.closeBillForTable = async (req, res) => {
       subtotal += lineTotal;
       return { ...x, lineTotal };
     });
+
     const taxAmount = 0;
     const grandTotal = subtotal + taxAmount;
 
@@ -62,6 +63,11 @@ exports.closeBillForTable = async (req, res) => {
       { $set: { billed: true, billId: bill._id, status: "COMPLETED" } }
     );
 
+    // Look up the table to get tableCode and assignedWaiterId
+    const table = await Table.findById(tableId).select("tableCode assignedWaiterId").lean();
+    const waiterUserId = table?.assignedWaiterId?.toString() || null;
+    const tableCode = table?.tableCode || req.body?.tableCode || null;
+
     const io = req.app.get("io");
     if (io) {
       // ✅ Notify admin dashboard
@@ -69,15 +75,26 @@ exports.closeBillForTable = async (req, res) => {
         tableId, orderIds, billId: bill._id, grandTotal,
       });
 
-      // ✅ NEW: Notify each customer session — triggers feedback screen
+      // ✅ Notify each customer session — triggers feedback screen
       for (const sessionId of sessionIds) {
         io.to(`session_${sessionId}`).emit("bill_closed", {
           billId: bill._id,
           grandTotal,
-          tableCode: req.body?.tableCode || null,
+          tableCode,
           restaurantName: req.body?.restaurantName || null,
         });
         console.log(`[SOCKET] bill_closed → session_${sessionId}`);
+      }
+
+      // ✅ NEW: Notify assigned waiter — clears their orders for this table
+      if (waiterUserId) {
+        io.to(`waiter_${waiterUserId}`).emit("waiter:bill_closed", {
+          tableId: tableId.toString(),
+          tableCode,
+          billId: bill._id.toString(),
+          grandTotal,
+        });
+        console.log(`[SOCKET] waiter:bill_closed → waiter_${waiterUserId} (Table ${tableCode})`);
       }
     }
 

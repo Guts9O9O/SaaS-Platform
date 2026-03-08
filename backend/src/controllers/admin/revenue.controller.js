@@ -348,7 +348,7 @@ exports.getTopItems = async (req, res) => {
           revenue: { $sum: { $ifNull: ["$items.lineTotal", 0] } },
         },
       },
-      { $sort: { revenue: -1 } },
+      { $sort: { quantity: -1, revenue: -1 } },
       { $limit: limit },
     ]);
 

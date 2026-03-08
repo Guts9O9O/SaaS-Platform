@@ -10,7 +10,6 @@ async function emitWaiterCalled(io, { created, restaurantId, tableId, tableCode 
     "assignedWaiterId tableCode"
   );
   const waiterUserId = table?.assignedWaiterId?.toString() || null;
-
   const payload = {
     requestId: created._id.toString(),
     restaurantId,
@@ -20,10 +19,8 @@ async function emitWaiterCalled(io, { created, restaurantId, tableId, tableCode 
     createdAt: created.createdAt,
     waiterUserId,
   };
-
   io.to(`restaurant_${restaurantId}`).emit("service_request", { request: created });
   io.to(`restaurant_${restaurantId}`).emit("waiter:called", payload);
-
   if (waiterUserId) {
     io.to(`waiter_${waiterUserId}`).emit("service_request", { request: created });
     io.to(`waiter_${waiterUserId}`).emit("waiter:called", payload);
@@ -33,11 +30,38 @@ async function emitWaiterCalled(io, { created, restaurantId, tableId, tableCode 
       `only restaurant room was notified.`
     );
   }
-
   console.log(
     `[SOCKET EMIT] waiter:called → restaurant_${restaurantId}` +
     (waiterUserId ? ` + waiter_${waiterUserId}` : " (no assigned waiter)")
   );
+}
+
+/**
+ * Helper: emit bill request to waiter room
+ */
+async function emitBillRequestToWaiter(io, { created, restaurantId, tableId, tableCode }) {
+  const table = await Table.findOne({ _id: tableId, restaurantId }).select(
+    "assignedWaiterId tableCode"
+  );
+  const waiterUserId = table?.assignedWaiterId?.toString() || null;
+  const payload = {
+    requestId: created._id.toString(),
+    restaurantId,
+    tableId,
+    tableCode,
+    type: "BILL",
+    createdAt: created.createdAt,
+    waiterUserId,
+  };
+  // Notify restaurant room (admin dashboard)
+  io.to(`restaurant_${restaurantId}`).emit("service_request", { request: created });
+  // ✅ NEW: Also notify the assigned waiter directly
+  if (waiterUserId) {
+    io.to(`waiter_${waiterUserId}`).emit("waiter:bill_requested", payload);
+    console.log(`[SOCKET EMIT] waiter:bill_requested → waiter_${waiterUserId} (Table ${tableCode})`);
+  } else {
+    console.warn(`[BILL REQUEST] Table ${tableCode} has no assignedWaiterId — waiter not notified.`);
+  }
 }
 
 /**
@@ -49,28 +73,21 @@ exports.requestBill = async (req, res) => {
     if (!restaurantId || !tableId || !tableCode) {
       return res.status(400).json({ message: "restaurantId, tableId, tableCode are required" });
     }
-
     const existing = await ServiceRequest.findOne({
       restaurantId, tableId, type: "BILL", status: "OPEN",
     }).sort({ createdAt: -1 });
-
     if (existing) {
       return res.status(200).json({ message: "Bill request already pending", request: existing });
     }
-
     const created = await ServiceRequest.create({
       restaurantId, tableId, tableCode,
       type: "BILL", status: "OPEN",
       requestedByCustomerId: req?.customer?._id || null,
     });
-
     const io = req.app.get("io");
     if (io) {
-      // BILL requests only notify the restaurant room (admin dashboard)
-      io.to(`restaurant_${restaurantId}`).emit("service_request", { request: created });
-      console.log(`[SOCKET EMIT] service_request (BILL) → restaurant_${restaurantId}`);
+      await emitBillRequestToWaiter(io, { created, restaurantId, tableId, tableCode });
     }
-
     return res.status(201).json({ message: "Bill requested", request: created });
   } catch (err) {
     console.error("requestBill error:", err);
@@ -90,31 +107,25 @@ exports.createServiceRequest = async (req, res) => {
     if (!["BILL", "WAITER"].includes(type)) {
       return res.status(400).json({ message: "Invalid request type" });
     }
-
     const existing = await ServiceRequest.findOne({
       restaurantId, tableId, type, status: "OPEN",
     }).sort({ createdAt: -1 });
-
     if (existing) {
       return res.status(200).json({ message: `${type} request already pending`, request: existing });
     }
-
     const created = await ServiceRequest.create({
       restaurantId, tableId, tableCode, type, status: "OPEN",
       requestedByCustomerId: req?.customer?._id || null,
     });
-
     const io = req.app.get("io");
     if (io) {
       if (created.type === "WAITER") {
         await emitWaiterCalled(io, { created, restaurantId, tableId, tableCode });
       } else {
-        // BILL: notify restaurant room only
-        io.to(`restaurant_${restaurantId}`).emit("service_request", { request: created });
-        console.log(`[SOCKET EMIT] service_request (BILL) → restaurant_${restaurantId}`);
+        // BILL: notify restaurant room + waiter
+        await emitBillRequestToWaiter(io, { created, restaurantId, tableId, tableCode });
       }
     }
-
     return res.status(201).json({ message: `${type} requested`, request: created });
   } catch (err) {
     console.error("createServiceRequest error:", err);

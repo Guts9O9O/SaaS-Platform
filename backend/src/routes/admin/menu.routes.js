@@ -15,8 +15,6 @@ const resolveRestaurantId = (req) => {
   return req.user ? req.user.restaurantId : null;
 };
 
-// ✅ FIX 1: Use `new mongoose.Types.ObjectId()` instead of calling it as a function
-// `ObjectId(id)` throws "Class constructor cannot be invoked without new"
 async function getRestaurantVideoCount(restaurantId) {
   const agg = await MenuItem.aggregate([
     { $match: { restaurantId: new mongoose.Types.ObjectId(restaurantId) } },
@@ -99,7 +97,8 @@ router.post('/items', adminAuth, async (req, res) => {
     if (!restaurantId) return res.status(400).json({ message: 'restaurantId required' });
     const {
       categoryId, name, description = '', price,
-      images = [], isAvailable = true, isVeg = true,
+      images = [], isActive = true, isVeg = true,
+      prepTime = '',          // ✅ added
       variants = [], addons = []
     } = req.body;
     if (!name || price === undefined) {
@@ -114,8 +113,9 @@ router.post('/items', adminAuth, async (req, res) => {
       categoryId: categoryId || null,
       name, description,
       price: Number(price),
-      images, isAvailable,
+      images, isActive,
       isVeg: Boolean(isVeg),
+      prepTime,               // ✅ added
       variants, addons
     });
     return res.json({ success: true, item });
@@ -157,7 +157,8 @@ router.put('/items/:id', adminAuth, async (req, res) => {
     const restaurantId = resolveRestaurantId(req);
     if (!restaurantId) return res.status(400).json({ message: 'restaurantId required' });
     const update = {};
-    ['categoryId','name','description','price','images','isAvailable','isVeg','variants','addons']
+    // ✅ prepTime added to allowed fields
+    ['categoryId', 'name', 'description', 'price', 'images', 'isActive', 'isVeg', 'prepTime', 'variants', 'addons']
       .forEach(k => { if (req.body[k] !== undefined) update[k] = req.body[k]; });
     if (update.categoryId) {
       const cat = await MenuCategory.findOne({ _id: update.categoryId, restaurantId });
@@ -188,10 +189,6 @@ router.delete('/items/:id', adminAuth, async (req, res) => {
   }
 });
 
-// ✅ FIX 2: Upload video route — field name is "video" (single), limit check uses new ObjectId
-// ✅ FIX 3: Frontend uploadVideo() must use:
-//   formData.append("video", file)          ← singular
-//   fetch(".../api/admin/menu/items/${id}/upload-video")  ← this route
 router.post(
   "/items/:itemId/upload-video",
   adminAuth,
@@ -201,12 +198,9 @@ router.post(
       const restaurantId = resolveRestaurantId(req);
       if (!restaurantId) return res.status(400).json({ message: "restaurantId required" });
       const { itemId } = req.params;
-      if (!req.file) {
-        return res.status(400).json({ message: "No video file uploaded" });
-      }
+      if (!req.file) return res.status(400).json({ message: "No video file uploaded" });
       const restaurant = await Restaurant.findById(restaurantId)
-        .select("restaurantVideoLimit menuItemVideoLimit isActive")
-        .lean();
+        .select("restaurantVideoLimit menuItemVideoLimit isActive").lean();
       if (!restaurant || restaurant.isActive === false) {
         try { fs.unlinkSync(req.file.path); } catch {}
         return res.status(404).json({ message: "Restaurant not found or inactive" });
@@ -217,27 +211,19 @@ router.post(
         return res.status(404).json({ message: "Menu item not found" });
       }
       if (!Array.isArray(item.videos)) item.videos = [];
-
       const perItemLimit = Number(restaurant.menuItemVideoLimit ?? 0);
       if (perItemLimit > 0 && item.videos.length >= perItemLimit) {
         try { fs.unlinkSync(req.file.path); } catch {}
-        return res.status(403).json({
-          message: `Per-item video limit reached (${perItemLimit}). Contact Super Admin to increase.`,
-        });
+        return res.status(403).json({ message: `Per-item video limit reached (${perItemLimit}). Contact Super Admin to increase.` });
       }
-
-      // ✅ FIX 1 applied here too — new ObjectId()
       const restaurantLimit = Number(restaurant.restaurantVideoLimit ?? 0);
       if (restaurantLimit > 0) {
         const currentTotal = await getRestaurantVideoCount(restaurantId);
         if (currentTotal >= restaurantLimit) {
           try { fs.unlinkSync(req.file.path); } catch {}
-          return res.status(403).json({
-            message: `Restaurant video limit reached (${restaurantLimit}). Contact Super Admin to increase.`,
-          });
+          return res.status(403).json({ message: `Restaurant video limit reached (${restaurantLimit}). Contact Super Admin to increase.` });
         }
       }
-
       const videoUrl = `/uploads/menu-videos/${req.file.filename}`;
       item.videos.push(videoUrl);
       await item.save();

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useState } from "react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL;
 
@@ -27,7 +27,30 @@ function formatMoney(n) {
   return Number(n || 0).toFixed(2);
 }
 
-export default function RevenueTrendPanel({ range = "7d", styles = {} }) {
+function formatDateDMY(dateStr) {
+  if (!dateStr) return "-";
+
+  const parts = String(dateStr).split("-");
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0]}`;
+  }
+
+  const d = new Date(dateStr);
+  if (Number.isNaN(d.getTime())) return dateStr;
+
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+export default function RevenueTrendPanel({
+  range = "7d",
+  styles = {},
+  title = "Daily Sales Summary",
+  subtitle = "Bills and sales for each day",
+}) {
   const { cardStyle, smallMuted } = styles;
 
   const [data, setData] = useState([]);
@@ -51,38 +74,77 @@ export default function RevenueTrendPanel({ range = "7d", styles = {} }) {
     load();
   }, [range]);
 
-  const maxRevenue = useMemo(() => {
-    return data.reduce((m, d) => Math.max(m, Number(d?.revenue || 0)), 0);
-  }, [data]);
-
   return (
     <div style={cardStyle}>
-      <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 10 }}>Revenue Trend</div>
+      <div style={{ marginBottom: 14 }}>
+        <div style={{ fontSize: 16, fontWeight: 800, marginBottom: 4 }}>
+          {title}
+        </div>
+        <div style={smallMuted}>{subtitle}</div>
+      </div>
 
       {err ? (
         <div style={{ color: "#ffb3b3" }}>{err}</div>
       ) : loading ? (
-        <div style={smallMuted}>Loading trend...</div>
+        <div style={smallMuted}>Loading sales summary...</div>
       ) : data.length === 0 ? (
-        <div style={smallMuted}>No trend data</div>
+        <div style={smallMuted}>No sales data</div>
       ) : (
         <div style={{ display: "grid", gap: 8 }}>
-          {data.map((d) => {
-            const rev = Number(d?.revenue || 0);
-            const pct = maxRevenue ? Math.round((rev / maxRevenue) * 100) : 0;
+          <div
+            style={{
+              display: "grid",
+              gridTemplateColumns: "140px 120px 1fr",
+              gap: 12,
+              padding: "0 4px 10px 4px",
+              borderBottom: "1px solid #262626",
+              fontSize: 12,
+              fontWeight: 700,
+              color: "#8a8070",
+              textTransform: "uppercase",
+              letterSpacing: 0.6,
+            }}
+          >
+            <div>Date</div>
+            <div style={{ textAlign: "center" }}>Bills</div>
+            <div style={{ textAlign: "right" }}>Sales</div>
+          </div>
 
-            return (
-              <div key={d.date} style={{ display: "grid", gridTemplateColumns: "110px 1fr 110px", gap: 10, alignItems: "center" }}>
-                <div style={smallMuted}>{d.date}</div>
+          {data.map((d) => (
+            <div
+              key={d.date}
+              style={{
+                display: "grid",
+                gridTemplateColumns: "140px 120px 1fr",
+                gap: 12,
+                alignItems: "center",
+                padding: "10px 4px",
+                borderBottom: "1px solid rgba(255,255,255,0.04)",
+              }}
+            >
+              <div style={smallMuted}>{formatDateDMY(d.date)}</div>
 
-                <div style={{ background: "#0f0f0f", border: "1px solid #262626", borderRadius: 10, height: 14, overflow: "hidden" }}>
-                  <div style={{ width: `${pct}%`, height: "100%" , background: "#2a2a2a" }} />
-                </div>
-
-                <div style={{ textAlign: "right" }}>₹ {formatMoney(rev)}</div>
+              <div
+                style={{
+                  textAlign: "center",
+                  color: "#f5f0e8",
+                  fontWeight: 600,
+                }}
+              >
+                {Number(d?.bills || 0)}
               </div>
-            );
-          })}
+
+              <div
+                style={{
+                  textAlign: "right",
+                  color: "#f5f0e8",
+                  fontWeight: 500,
+                }}
+              >
+                ₹ {formatMoney(d?.revenue || 0)}
+              </div>
+            </div>
+          ))}
         </div>
       )}
     </div>

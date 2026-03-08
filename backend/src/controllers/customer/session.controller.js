@@ -7,9 +7,7 @@ function generateSessionId() {
   return crypto.randomBytes(16).toString("hex");
 }
 
-// ✅ NEW: Check if existing session cookie is still valid
-// Called on every page reload BEFORE creating a new session
-// Returns same shape as createSession so frontend context works identically
+// ✅ Check if existing session cookie is still valid
 exports.checkSession = async (req, res) => {
   try {
     const token = req.cookies?.customerSessionId;
@@ -20,18 +18,16 @@ exports.checkSession = async (req, res) => {
       isActive: true,
       expiresAt: { $gt: new Date() },
     });
-
     if (!session) return res.status(401).json({ message: "Session expired" });
 
-    // Fetch restaurant and table separately (no populate to keep it simple)
-    const restaurant = await Restaurant.findById(session.restaurantId).select("_id name slug");
+    // ✅ FIX: added logoUrl to select
+    const restaurant = await Restaurant.findById(session.restaurantId).select("_id name slug logoUrl");
     const table = await Table.findById(session.tableId).select("_id tableCode");
 
     if (!restaurant || !table) {
       return res.status(401).json({ message: "Session data missing" });
     }
 
-    // ✅ Return exact same shape as createSession
     return res.json({
       sessionId: session.sessionId,
       restaurant: {
@@ -39,6 +35,7 @@ exports.checkSession = async (req, res) => {
         _id: restaurant._id,
         name: restaurant.name,
         slug: restaurant.slug,
+        logoUrl: restaurant.logoUrl || null,  // ✅ FIX
       },
       table: {
         id: table._id,
@@ -59,7 +56,8 @@ exports.createSession = async (req, res) => {
       return res.status(400).json({ message: "Missing parameters" });
     }
 
-    const restaurant = await Restaurant.findOne({ slug: restaurantSlug, isActive: true });
+    // ✅ FIX: added logoUrl to select
+    const restaurant = await Restaurant.findOne({ slug: restaurantSlug, isActive: true }).select("_id name slug logoUrl");
     if (!restaurant) return res.status(404).json({ message: "Restaurant not found" });
 
     const table = await Table.findOne({
@@ -69,8 +67,7 @@ exports.createSession = async (req, res) => {
     });
     if (!table) return res.status(404).json({ message: "Table not found" });
 
-    const expiresAt = new Date(Date.now() + 6 * 60 * 60 * 1000); // 6 hours
-
+    const expiresAt = new Date(Date.now() + 6 * 60 * 60 * 1000);
     const session = await CustomerSession.create({
       restaurantId: restaurant._id,
       tableId: table._id,
@@ -81,7 +78,7 @@ exports.createSession = async (req, res) => {
     res.cookie("customerSessionId", session.sessionId, {
       httpOnly: true,
       sameSite: "lax",
-      secure: false, // set true in production behind HTTPS
+      secure: false,
       maxAge: 6 * 60 * 60 * 1000,
     });
 
@@ -92,6 +89,7 @@ exports.createSession = async (req, res) => {
         _id: restaurant._id,
         name: restaurant.name,
         slug: restaurant.slug,
+        logoUrl: restaurant.logoUrl || null,  // ✅ FIX
       },
       table: {
         id: table._id,

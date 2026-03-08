@@ -34,7 +34,7 @@ const RADIUS                  = 8;
 const CIRCUMFERENCE           = 2 * Math.PI * RADIUS;
 
 // ─── SPLASH SCREEN ───────────────────────────────────────────────────────────
-function SplashScreen({ restaurantName }) {
+function SplashScreen({ restaurantName, logoUrl }) {
   return (
     <>
       <style>{`
@@ -71,8 +71,13 @@ function SplashScreen({ restaurantName }) {
             border: "1px solid rgba(201,168,76,0.3)",
             display: "flex", alignItems: "center", justifyContent: "center",
             fontSize: 32,
+            overflow: "hidden",
           }}>
-            🍽️
+            {logoUrl
+              ? <img src={logoUrl.startsWith("http") ? logoUrl : `${process.env.NEXT_PUBLIC_API_URL}${logoUrl}`}
+                  alt="logo"
+                  style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+              : "🍽️"}
           </div>
         </div>
 
@@ -350,8 +355,17 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
     const q   = search.trim().toLowerCase();
     const cats = Array.isArray(menuData) ? menuData : [];
     const by  = activeCategoryKey === "ALL" ? cats : cats.filter((c) => c._keyId === activeCategoryKey);
-    if (!q) return by;
-    return by.map((cat) => ({ ...cat, items: (cat.items || []).filter((it) => String(it.name || "").toLowerCase().includes(q)) })).filter((cat) => (cat.items || []).length > 0);
+
+    // Hide items where isActive is explicitly false
+    const withActive = by.map((cat) => ({
+      ...cat,
+      items: (cat.items || []).filter((it) => it.isActive !== false),
+    }));
+
+    if (!q) return withActive;
+    return withActive
+      .map((cat) => ({ ...cat, items: (cat.items || []).filter((it) => String(it.name || "").toLowerCase().includes(q)) }))
+      .filter((cat) => (cat.items || []).length > 0);
   }, [menuData, search, activeCategoryKey]);
 
   const waiterProgress = waiterCooldown / WAITER_COOLDOWN_SECONDS;
@@ -360,7 +374,7 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
 
   // Show splash for first 3.5s regardless
   if (showSplash) {
-    return <SplashScreen restaurantName={context?.restaurant?.name} />;
+    return <SplashScreen restaurantName={context?.restaurant?.name} logoUrl={context?.restaurant?.logoUrl} />;
   }
 
   if (loading) return (
@@ -409,7 +423,7 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
         .menu-title{font-family:'Playfair Display',serif;font-size:28px;font-weight:700;line-height:1.1;letter-spacing:-0.5px;color:#f5f0e8;}
         .menu-title em{font-style:italic;color:#c9a84c;}
         .menu-welcome{font-size:12px;color:#c9a84c;font-weight:500;margin-top:6px;}
-        .menu-avatar{width:44px;height:44px;border-radius:50%;border:1.5px solid rgba(201,168,76,0.3);background:linear-gradient(135deg,#1a1612,#2a2018);display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-size:18px;font-weight:700;color:#c9a84c;flex-shrink:0;}
+        .menu-avatar{width:64px;height:64px;border-radius:50%;border:1.5px solid rgba(201,168,76,0.3);background:linear-gradient(135deg,#1a1612,#2a2018);display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-size:24px;font-weight:700;color:#c9a84c;flex-shrink:0;}
         .search-wrap{position:relative;margin-bottom:24px;}
         .search-icon{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:#8a8070;}
         .search-input{width:100%;padding:14px 16px 14px 46px;background:rgba(255,255,255,0.04);border:1px solid rgba(245,240,232,0.07);border-radius:16px;color:#f5f0e8;font-size:14px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color 0.2s,box-shadow 0.2s;}
@@ -455,7 +469,7 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
         .bottom-bar-inner{max-width:430px;margin:0 auto;display:flex;justify-content:space-between;align-items:center;gap:12px;}
         .bottom-bar-hint{font-size:11px;color:#8a8070;letter-spacing:0.3px;}
         .bottom-bar-total{font-family:'Playfair Display',serif;font-size:20px;font-weight:700;color:#c9a84c;}
-        .bottom-bar-actions{display:flex;gap:8px;align-items:center;}
+        .bottom-bar-actions{display:flex;gap:8px;align-items:center;margin-left:60px;}
         .waiter-btn{display:flex;align-items:center;gap:8px;padding:11px 18px;border-radius:100px;font-size:13px;font-weight:600;font-family:'DM Sans',sans-serif;cursor:pointer;transition:all 0.2s;border:1px solid rgba(245,240,232,0.1);background:rgba(255,255,255,0.04);color:#f5f0e8;white-space:nowrap;}
         .waiter-btn:hover:not(:disabled){border-color:rgba(201,168,76,0.3);background:rgba(201,168,76,0.06);}
         .waiter-btn:disabled{cursor:not-allowed;}
@@ -488,17 +502,24 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
         .video-modal-title{font-size:15px;font-weight:600;color:#f5f0e8;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;margin-right:12px;}
         .video-close-btn{width:34px;height:34px;border-radius:50%;background:rgba(255,255,255,0.06);border:none;cursor:pointer;color:#f5f0e8;font-size:16px;display:flex;align-items:center;justify-content:center;}
         .video-close-btn:hover{background:rgba(255,255,255,0.1);}
+        .menu-prep-time{font-size:11px;color:#8a8070;margin-bottom:8px;display:flex;align-items:center;gap:3px;}
       `}</style>
       <div className="menu-root">
         <div className="menu-inner">
           {/* HEADER */}
           <div className="menu-header">
             <div className="menu-header-left">
-              <div className="menu-venue">📍 {context.restaurant.name} · Table {context.table.tableCode}</div>
+              <div className="menu-venue">📍 {context.restaurant.name}</div>
               <h1 className="menu-title">What are you<br /><em>craving?</em></h1>
               {customer && <p className="menu-welcome">Welcome ✦</p>}
             </div>
-            <div className="menu-avatar">🍽️</div>
+            <div className="menu-avatar" style={{ borderRadius: context?.restaurant?.logoUrl ? 12 : "50%", overflow: "hidden", padding: context?.restaurant?.logoUrl ? 0 : undefined }}>
+              {context?.restaurant?.logoUrl
+                ? <img src={context.restaurant.logoUrl.startsWith("http") ? context.restaurant.logoUrl : `${process.env.NEXT_PUBLIC_API_URL}${context.restaurant.logoUrl}`}
+                    alt="logo"
+                    style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+                : "🍽️"}
+            </div>
           </div>
           {/* SEARCH */}
           {activeTab === "menu" && (
@@ -612,16 +633,14 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
         {activeTab === "menu" && !isCartOpen && (
           <div className="bottom-bar">
             <div className="bottom-bar-inner">
-              <div>
-                {cartItems.length > 0 ? (
+              {/* <div>
+                {cartItems.length > 0 && (
                   <>
                     <div className="bottom-bar-hint">{cartCount} item{cartCount !== 1 ? "s" : ""} in cart</div>
                     <div className="bottom-bar-total">{moneyINR(cartTotal)}</div>
                   </>
-                ) : (
-                  <div className="bottom-bar-hint">Table {context.table.tableCode}</div>
                 )}
-              </div>
+              </div> */}
               <div className="bottom-bar-actions">
                 <button
                   className={`waiter-btn ${waiterCalled ? "active" : ""}`}
@@ -714,6 +733,7 @@ function MenuCard({ item, qty, onAdd, onInc, onDec, onViewVideo }) {
   const img      = getItemImage(item) || "/cold-coffee.jpg";
   const isVeg    = item.isVeg === true;
   const videoUrl = getItemVideo(item);
+  const prepTime = item.prepTime || "";
   return (
     <div className="menu-card">
       <div className="menu-card-img">
@@ -726,6 +746,16 @@ function MenuCard({ item, qty, onAdd, onInc, onDec, onViewVideo }) {
       </div>
       <div className="menu-card-body">
         <div className="menu-card-name">{item.name}</div>
+        {/* ✅ Prep time — only shown if set */}
+        {prepTime && (
+          <div className="menu-prep-time">
+            <svg width="10" height="10" fill="none" stroke="currentColor" viewBox="0 0 24 24" style={{ flexShrink: 0 }}>
+              <circle cx="12" cy="12" r="10" strokeWidth="2" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 6v6l4 2" />
+            </svg>
+            {prepTime}
+          </div>
+        )}
         <div className="menu-card-footer">
           <span className="menu-price">{moneyINR(item.price)}</span>
           {qty === 0 ? (

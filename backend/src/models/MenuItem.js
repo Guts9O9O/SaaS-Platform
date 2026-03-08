@@ -1,5 +1,4 @@
 const mongoose = require("mongoose");
-
 const MenuItemSchema = new mongoose.Schema(
   {
     restaurantId: {
@@ -31,8 +30,8 @@ const MenuItemSchema = new mongoose.Schema(
       type: [String],
       default: [],
     },
-    videos: {   
-      type: [String],   
+    videos: {
+      type: [String],
       default: [],
     },
     isActive: {
@@ -43,6 +42,12 @@ const MenuItemSchema = new mongoose.Schema(
       type: Boolean,
       default: true,
       required: true,
+    },
+    // ✅ NEW: Prep time label e.g. "15 mins", "30 mins"
+    prepTime: {
+      type: String,
+      trim: true,
+      default: "",
     },
     variants: [
       {
@@ -59,10 +64,8 @@ const MenuItemSchema = new mongoose.Schema(
   },
   { timestamps: true }
 );
-
 MenuItemSchema.index(
   { restaurantId: 1, categoryId: 1, name: 1 },
   { unique: true }
 );
-
 module.exports = mongoose.models.MenuItem || mongoose.model("MenuItem", MenuItemSchema);

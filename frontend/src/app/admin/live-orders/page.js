@@ -4,10 +4,7 @@ import { io } from "socket.io-client";
 import { useRouter } from "next/navigation";
 import BillingModal from "../../components/BillingModal";
 import RevenueSummaryPanel from "../../components/RevenueSummaryPanel";
-import BillHistoryPanel from "../../components/BillHistoryPanel";
-
 const API_BASE = process.env.NEXT_PUBLIC_API_URL;
-
 function getToken() {
   if (typeof window === "undefined") return null;
   return localStorage.getItem("adminToken") || localStorage.getItem("token");
@@ -33,16 +30,14 @@ async function apiFetch(path, opts = {}) {
   return data;
 }
 function formatMoney(n) { return `₹${Number(n || 0).toFixed(2)}`; }
-
 const STATUS_META = {
-  PENDING:  { label: "Pending",  bg: "rgba(251,191,36,0.1)",  fg: "#fbbf24", border: "rgba(251,191,36,0.25)" },
-  ACCEPTED: { label: "Accepted", bg: "rgba(16,185,129,0.1)",  fg: "#10b981", border: "rgba(16,185,129,0.25)" },
-  REJECTED: { label: "Rejected", bg: "rgba(239,68,68,0.1)",   fg: "#ef4444", border: "rgba(239,68,68,0.25)" },
-  IN_KITCHEN:{ label: "In Kitchen",bg:"rgba(99,102,241,0.1)", fg: "#818cf8", border: "rgba(99,102,241,0.25)" },
-  READY:    { label: "Ready",    bg: "rgba(34,197,94,0.1)",   fg: "#22c55e", border: "rgba(34,197,94,0.25)" },
-  SERVED:   { label: "Served",   bg: "rgba(148,163,184,0.1)", fg: "#94a3b8", border: "rgba(148,163,184,0.25)" },
+  PENDING:   { label: "Pending",    bg: "rgba(251,191,36,0.1)",  fg: "#fbbf24", border: "rgba(251,191,36,0.25)" },
+  ACCEPTED:  { label: "Accepted",   bg: "rgba(16,185,129,0.1)",  fg: "#10b981", border: "rgba(16,185,129,0.25)" },
+  REJECTED:  { label: "Rejected",   bg: "rgba(239,68,68,0.1)",   fg: "#ef4444", border: "rgba(239,68,68,0.25)" },
+  IN_KITCHEN:{ label: "In Kitchen", bg: "rgba(99,102,241,0.1)",  fg: "#818cf8", border: "rgba(99,102,241,0.25)" },
+  READY:     { label: "Ready",      bg: "rgba(34,197,94,0.1)",   fg: "#22c55e", border: "rgba(34,197,94,0.25)" },
+  SERVED:    { label: "Served",     bg: "rgba(148,163,184,0.1)", fg: "#94a3b8", border: "rgba(148,163,184,0.25)" },
 };
-
 function StatusPill({ status }) {
   const s = STATUS_META[status] || { label: status, bg: "rgba(255,255,255,0.05)", fg: "#8a8070", border: "rgba(255,255,255,0.1)" };
   return (
@@ -51,52 +46,42 @@ function StatusPill({ status }) {
     </span>
   );
 }
-
 function Toast({ message, type = "success", onClose }) {
   useEffect(() => { const t = setTimeout(onClose, 3500); return () => clearTimeout(t); }, []);
   const colors = {
     success: { bg: "rgba(16,185,129,0.1)", border: "rgba(16,185,129,0.2)", fg: "#10b981" },
     bill:    { bg: "rgba(201,168,76,0.1)",  border: "rgba(201,168,76,0.2)",  fg: "#c9a84c" },
-    waiter:  { bg: "rgba(99,102,241,0.1)",  border: "rgba(99,102,241,0.2)",  fg: "#818cf8" },
   };
   const c = colors[type] || colors.success;
   return (
     <div style={{ position: "fixed", top: 20, right: 20, zIndex: 9999, padding: "14px 20px", background: "#161410", border: `1px solid ${c.border}`, borderRadius: 14, boxShadow: "0 20px 40px rgba(0,0,0,0.4)", display: "flex", alignItems: "center", gap: 12, maxWidth: 360, animation: "slideIn 0.3s cubic-bezier(0.16,1,0.3,1)" }}>
-      <span style={{ fontSize: 18 }}>{type === "bill" ? "🧾" : type === "waiter" ? "🔔" : "✓"}</span>
+      <span style={{ fontSize: 18 }}>{type === "bill" ? "🧾" : "✓"}</span>
       <span style={{ color: "#f5f0e8", fontSize: 13, fontWeight: 500 }}>{message}</span>
       <button onClick={onClose} style={{ marginLeft: "auto", background: "none", border: "none", color: "#8a8070", cursor: "pointer", fontSize: 16, padding: 0 }}>✕</button>
     </div>
   );
 }
-
 export default function LiveOrdersPage() {
   const router = useRouter();
   useEffect(() => { const t = getToken(); if (!t) router.push("/admin/login"); }, [router]);
-
-  const [tables, setTables] = useState([]);
-  const [loading, setLoading] = useState(true);
-  const [err, setErr] = useState("");
-  const [search, setSearch] = useState("");
-  const [showBillHistory, setShowBillHistory] = useState(false);
+  const [tables, setTables]           = useState([]);
+  const [loading, setLoading]         = useState(true);
+  const [err, setErr]                 = useState("");
+  const [search, setSearch]           = useState("");
   const [revenueTick, setRevenueTick] = useState(0);
   const [billingOpen, setBillingOpen] = useState(false);
   const [billingTable, setBillingTable] = useState(null);
   const [billRequests, setBillRequests] = useState([]);
-  const [waiterRequests, setWaiterRequests] = useState([]);
-  const [toast, setToast] = useState(null);
-  const [waiterCalls, setWaiterCalls] = useState({});
-  const refreshTimerRef = useRef(null);
-  const socketRef = useRef(null);
-  const restaurantIdRef = useRef(null);
-
-  // styles passed to child components
-  const cardStyle = { background: "#161410", border: "1px solid rgba(245,240,232,0.07)", borderRadius: 16, padding: 16, boxShadow: "0 8px 32px rgba(0,0,0,0.3)" };
-  const btnStyle = { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(245,240,232,0.08)", color: "#c8bfb0", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "inherit", transition: "all 0.2s" };
-  const btnDanger = { ...btnStyle, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "#fca5a5" };
-  const btnOk = { ...btnStyle, background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)", color: "#6ee7b7" };
-  const btnGold = { ...btnStyle, background: "rgba(201,168,76,0.1)", border: "1px solid rgba(201,168,76,0.25)", color: "#c9a84c" };
+  const [toast, setToast]             = useState(null);
+  const refreshTimerRef  = useRef(null);
+  const socketRef        = useRef(null);
+  const restaurantIdRef  = useRef(null);
+  const cardStyle  = { background: "#161410", border: "1px solid rgba(245,240,232,0.07)", borderRadius: 16, padding: 16, boxShadow: "0 8px 32px rgba(0,0,0,0.3)" };
+  const btnStyle   = { background: "rgba(255,255,255,0.04)", border: "1px solid rgba(245,240,232,0.08)", color: "#c8bfb0", padding: "8px 14px", borderRadius: 10, cursor: "pointer", fontSize: 13, fontFamily: "inherit", transition: "all 0.2s" };
+  const btnDanger  = { ...btnStyle, background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", color: "#fca5a5" };
+  const btnOk      = { ...btnStyle, background: "rgba(16,185,129,0.08)", border: "1px solid rgba(16,185,129,0.2)", color: "#6ee7b7" };
+  const btnGold    = { ...btnStyle, background: "rgba(201,168,76,0.1)", border: "1px solid rgba(201,168,76,0.25)", color: "#c9a84c" };
   const smallMuted = { color: "#8a8070", fontSize: 12 };
-
   const fetchLive = async () => {
     setErr("");
     const data = await apiFetch("/api/admin/orders/live-by-table");
@@ -106,15 +91,10 @@ export default function LiveOrdersPage() {
     if (!restaurantId) return;
     try { const data = await apiFetch(`/api/admin/requests?status=OPEN&type=BILL&restaurantId=${restaurantId}`); setBillRequests(Array.isArray(data?.requests) ? data.requests : []); } catch {}
   };
-  const fetchWaiterRequests = async (restaurantId) => {
-    if (!restaurantId) return;
-    try { const data = await apiFetch(`/api/admin/requests?status=OPEN&type=WAITER&restaurantId=${restaurantId}`); setWaiterRequests(Array.isArray(data?.requests) ? data.requests : []); } catch {}
-  };
   const scheduleRefresh = () => {
     if (refreshTimerRef.current) return;
     refreshTimerRef.current = setTimeout(async () => { refreshTimerRef.current = null; try { await fetchLive(); } catch (e) { setErr(e.message); } }, 250);
   };
-
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -122,7 +102,6 @@ export default function LiveOrdersPage() {
     })();
     return () => { mounted = false; if (refreshTimerRef.current) clearTimeout(refreshTimerRef.current); };
   }, []);
-
   useEffect(() => {
     const token = getToken();
     const payload = token ? safeDecodeJwtPayload(token) : null;
@@ -133,9 +112,9 @@ export default function LiveOrdersPage() {
     socketRef.current = socket;
     const onConnect = () => {
       if (token) socket.emit("join_admin_room_secure", { token });
-      if (restaurantId) { fetchBillRequests(restaurantId); fetchWaiterRequests(restaurantId); }
+      if (restaurantId) fetchBillRequests(restaurantId);
     };
-    const onOrderUpdated = () => scheduleRefresh();
+    const onOrderUpdated  = () => scheduleRefresh();
     const onBillingClosed = () => { scheduleRefresh(); setRevenueTick(x => x + 1); };
     const onServiceRequest = ({ request }) => {
       if (!request) return;
@@ -143,10 +122,9 @@ export default function LiveOrdersPage() {
         setToast({ msg: `Bill requested — Table ${request.tableCode}`, type: "bill" });
         setBillRequests(prev => prev.some(r => String(r._id) === String(request._id)) ? prev : [request, ...prev]);
       }
+      // waiter calls: toast only, no persistent panel
       if (request.type === "WAITER") {
-        setToast({ msg: `Waiter called — Table ${request.tableCode}`, type: "waiter" });
-        setWaiterRequests(prev => prev.some(r => String(r._id) === String(request._id)) ? prev : [request, ...prev]);
-        setWaiterCalls(prev => ({ ...prev, [request.tableCode]: true }));
+        setToast({ msg: `Waiter called — Table ${request.tableCode}`, type: "success" });
       }
     };
     const onServiceRequestUpdate = ({ request }) => {
@@ -165,7 +143,6 @@ export default function LiveOrdersPage() {
       try { if (restaurantId) socket.emit("leave_admin_room", { restaurantId }); socket.disconnect(); } catch {}
     };
   }, []);
-
   const filteredTables = useMemo(() => {
     const q = (search || "").trim().toLowerCase();
     if (!q) return tables;
@@ -174,16 +151,12 @@ export default function LiveOrdersPage() {
       return (Array.isArray(t.orders) ? t.orders : []).some(o => (o?.items || []).some(it => `${it?.name || ""}`.toLowerCase().includes(q)));
     });
   }, [tables, search]);
-
   const updateOrderStatus = async (orderId, status) => {
     try { setErr(""); await apiFetch(`/api/admin/orders/${orderId}/status`, { method: "PATCH", body: JSON.stringify({ status }) }); scheduleRefresh(); }
     catch (e) { setErr(e.message); }
   };
-  const ackBillRequest = async (id) => { try { await apiFetch(`/api/admin/requests/${id}/ack`, { method: "PATCH" }); await fetchBillRequests(restaurantIdRef.current); } catch (e) { setErr(e.message); } };
+  const ackBillRequest   = async (id) => { try { await apiFetch(`/api/admin/requests/${id}/ack`,   { method: "PATCH" }); await fetchBillRequests(restaurantIdRef.current); } catch (e) { setErr(e.message); } };
   const closeBillRequest = async (id) => { try { await apiFetch(`/api/admin/requests/${id}/close`, { method: "PATCH" }); await fetchBillRequests(restaurantIdRef.current); } catch (e) { setErr(e.message); } };
-  const ackWaiterRequest = async (id) => { try { await apiFetch(`/api/admin/requests/${id}/ack`, { method: "PATCH" }); await fetchWaiterRequests(restaurantIdRef.current); } catch (e) { setErr(e.message); } };
-  const closeWaiterRequest = async (id) => { try { await apiFetch(`/api/admin/requests/${id}/close`, { method: "PATCH" }); await fetchWaiterRequests(restaurantIdRef.current); } catch (e) { setErr(e.message); } };
-
   return (
     <>
       <style>{`
@@ -200,12 +173,9 @@ export default function LiveOrdersPage() {
         .lo-order-card { transition: border-color 0.2s; }
         .lo-order-card:hover { border-color: rgba(245,240,232,0.12) !important; }
       `}</style>
-
       <div style={{ minHeight: "100vh", background: "#0e0e0e", color: "#f5f0e8", padding: "24px 20px", fontFamily: "'DM Sans', sans-serif" }}>
-
         {toast && <Toast message={toast.msg} type={toast.type} onClose={() => setToast(null)} />}
-
-        {/* PAGE HEADER */}
+        {/* Header */}
         <div style={{ marginBottom: 24 }}>
           <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 16, flexWrap: "wrap" }}>
             <div>
@@ -217,9 +187,6 @@ export default function LiveOrdersPage() {
                 <svg style={{ position: "absolute", left: 12, top: "50%", transform: "translateY(-50%)", pointerEvents: "none" }} width="14" height="14" fill="none" stroke="#8a8070" viewBox="0 0 24 24"><circle cx="11" cy="11" r="8"/><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-4.35-4.35"/></svg>
                 <input className="lo-input" value={search} onChange={e => setSearch(e.target.value)} placeholder="Search table or item..." style={{ background: "rgba(255,255,255,0.03)", border: "1px solid rgba(245,240,232,0.08)", color: "#f5f0e8", padding: "9px 14px 9px 36px", borderRadius: 12, fontSize: 13, outline: "none", width: 220, fontFamily: "inherit", transition: "all 0.2s" }} />
               </div>
-              <button className="lo-btn" style={btnStyle} onClick={() => setShowBillHistory(v => !v)}>
-                {showBillHistory ? "Hide History" : "Bill History"}
-              </button>
               <button className="lo-btn" style={btnGold} onClick={async () => { try { setLoading(true); await fetchLive(); await fetchBillRequests(restaurantIdRef.current); } catch (e) { setErr(e.message); } finally { setLoading(false); } }}>
                 <span style={{ display: "flex", alignItems: "center", gap: 6 }}>
                   <svg width="13" height="13" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
@@ -228,28 +195,18 @@ export default function LiveOrdersPage() {
               </button>
             </div>
           </div>
-
-          {/* Live indicator */}
           <div style={{ display: "flex", alignItems: "center", gap: 8, marginTop: 12 }}>
             <div style={{ width: 7, height: 7, borderRadius: "50%", background: "#10b981", animation: "pulse 2s infinite" }} />
             <span style={{ fontSize: 12, color: "#8a8070" }}>Live • Updates automatically</span>
             {tables.length > 0 && <span style={{ fontSize: 12, color: "#8a8070" }}>• {tables.length} active table{tables.length !== 1 ? "s" : ""}</span>}
           </div>
         </div>
-
-        {/* DIVIDER */}
         <div style={{ height: 1, background: "linear-gradient(90deg, rgba(201,168,76,0.3), transparent)", marginBottom: 24 }} />
-
-        {/* ERROR */}
         {err && (
           <div style={{ padding: "12px 16px", background: "rgba(239,68,68,0.08)", border: "1px solid rgba(239,68,68,0.2)", borderRadius: 12, marginBottom: 16, color: "#fca5a5", fontSize: 13, display: "flex", alignItems: "center", gap: 10 }}>
             <span>⚠</span>{err}
           </div>
         )}
-
-        {/* BILL HISTORY */}
-        {showBillHistory && <BillHistoryPanel tables={tables} styles={{ cardStyle, btnStyle, btnOk, btnDanger, smallMuted }} />}
-
         {/* BILL REQUESTS */}
         {billRequests.length > 0 && (
           <div style={{ ...cardStyle, marginBottom: 16, borderColor: "rgba(201,168,76,0.2)" }}>
@@ -271,7 +228,7 @@ export default function LiveOrdersPage() {
                     <p style={{ fontSize: 11, color: "#8a8070", margin: "3px 0 0" }}>{new Date(r.createdAt).toLocaleTimeString()}</p>
                   </div>
                   <div style={{ display: "flex", gap: 8 }}>
-                    <button className="lo-btn-ok" style={btnOk} onClick={() => ackBillRequest(r._id)}>Acknowledge</button>
+                    <button className="lo-btn-ok"     style={btnOk}     onClick={() => ackBillRequest(r._id)}>Acknowledge</button>
                     <button className="lo-btn-danger" style={btnDanger} onClick={() => closeBillRequest(r._id)}>Close</button>
                   </div>
                 </div>
@@ -279,37 +236,6 @@ export default function LiveOrdersPage() {
             </div>
           </div>
         )}
-
-        {/* WAITER REQUESTS */}
-        {waiterRequests.length > 0 && (
-          <div style={{ ...cardStyle, marginBottom: 16, borderColor: "rgba(99,102,241,0.2)" }}>
-            <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14 }}>
-              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                <div style={{ width: 32, height: 32, borderRadius: 10, background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.2)", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 16 }}>🔔</div>
-                <div>
-                  <p style={{ fontSize: 14, fontWeight: 600, color: "#f5f0e8", margin: 0 }}>Waiter Calls</p>
-                  <p style={{ fontSize: 11, color: "#8a8070", margin: 0 }}>{waiterRequests.length} pending</p>
-                </div>
-              </div>
-              <button className="lo-btn" style={btnStyle} onClick={() => fetchWaiterRequests(restaurantIdRef.current)}>Reload</button>
-            </div>
-            <div style={{ display: "flex", flexDirection: "column", gap: 8 }}>
-              {waiterRequests.slice(0, 10).map(r => (
-                <div key={r._id} style={{ display: "flex", alignItems: "center", justifyContent: "space-between", padding: "12px 14px", background: "rgba(99,102,241,0.04)", border: "1px solid rgba(99,102,241,0.12)", borderRadius: 12, gap: 12 }}>
-                  <div>
-                    <p style={{ fontSize: 14, fontWeight: 600, color: "#f5f0e8", margin: 0 }}>Table <span style={{ color: "#818cf8" }}>{r.tableCode}</span></p>
-                    <p style={{ fontSize: 11, color: "#8a8070", margin: "3px 0 0" }}>{new Date(r.createdAt).toLocaleTimeString()}</p>
-                  </div>
-                  <div style={{ display: "flex", gap: 8 }}>
-                    <button className="lo-btn-ok" style={btnOk} onClick={() => ackWaiterRequest(r._id)}>Acknowledge</button>
-                    <button className="lo-btn-danger" style={btnDanger} onClick={() => closeWaiterRequest(r._id)}>Close</button>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        )}
-
         {/* ORDERS */}
         {loading ? (
           <div style={{ ...cardStyle, display: "flex", alignItems: "center", gap: 12, color: "#8a8070" }}>
@@ -325,12 +251,10 @@ export default function LiveOrdersPage() {
         ) : (
           <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
             {filteredTables.map(t => {
-              const orders = Array.isArray(t.orders) ? t.orders : [];
-              const hasBillReq = billRequests.some(r => r.tableCode === t.tableCode);
+              const orders      = Array.isArray(t.orders) ? t.orders : [];
+              const hasBillReq  = billRequests.some(r => r.tableCode === t.tableCode);
               return (
                 <div key={t.tableId} className="lo-card" style={{ ...cardStyle, borderColor: hasBillReq ? "rgba(201,168,76,0.3)" : "rgba(245,240,232,0.07)", transition: "border-color 0.2s" }}>
-
-                  {/* TABLE HEADER */}
                   <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 14, gap: 12, flexWrap: "wrap" }}>
                     <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                       <div style={{ width: 36, height: 36, borderRadius: 10, background: "rgba(201,168,76,0.1)", border: "1px solid rgba(201,168,76,0.2)", display: "flex", alignItems: "center", justifyContent: "center" }}>
@@ -340,9 +264,6 @@ export default function LiveOrdersPage() {
                         <p style={{ fontSize: 16, fontWeight: 700, color: "#f5f0e8", margin: 0 }}>Table <span style={{ color: "#c9a84c" }}>{t.tableCode}</span></p>
                         <p style={{ fontSize: 11, color: "#8a8070", margin: 0 }}>{orders.length} order{orders.length !== 1 ? "s" : ""}</p>
                       </div>
-                      {waiterCalls[t.tableCode] && (
-                        <span style={{ background: "rgba(99,102,241,0.1)", border: "1px solid rgba(99,102,241,0.3)", color: "#818cf8", padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 600 }}>🔔 Waiter Called</span>
-                      )}
                       {hasBillReq && (
                         <span style={{ background: "rgba(201,168,76,0.1)", border: "1px solid rgba(201,168,76,0.3)", color: "#c9a84c", padding: "3px 10px", borderRadius: 999, fontSize: 11, fontWeight: 600 }}>🧾 Bill Requested</span>
                       )}
@@ -360,10 +281,7 @@ export default function LiveOrdersPage() {
                       </button>
                     </div>
                   </div>
-
                   <div style={{ height: 1, background: "rgba(245,240,232,0.05)", marginBottom: 14 }} />
-
-                  {/* ORDERS */}
                   <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
                     {orders.map(o => {
                       const items = o.items || o.orderItems || [];
@@ -374,8 +292,6 @@ export default function LiveOrdersPage() {
                             <StatusPill status={o.status} />
                             <p style={{ marginLeft: "auto", fontSize: 13, fontWeight: 700, color: "#c9a84c", margin: 0 }}>{formatMoney(o.totalAmount)}</p>
                           </div>
-
-                          {/* ITEMS */}
                           <div style={{ display: "flex", flexDirection: "column", gap: 4, marginBottom: 12 }}>
                             {items.map((it, idx) => (
                               <div key={idx} style={{ display: "flex", justifyContent: "space-between", fontSize: 12 }}>
@@ -384,9 +300,7 @@ export default function LiveOrdersPage() {
                               </div>
                             ))}
                           </div>
-
-                          {/* ACTIONS */}
-                          {o.status === "PENDING" ? (
+                          {o.status === "PENDING" && (
                             <div style={{ display: "flex", gap: 8 }}>
                               <button className="lo-btn-ok" style={{ ...btnOk, flex: 1 }} onClick={() => updateOrderStatus(o._id, "ACCEPTED")}>
                                 <span style={{ display: "flex", alignItems: "center", justifyContent: "center", gap: 6 }}>
@@ -401,8 +315,6 @@ export default function LiveOrdersPage() {
                                 </span>
                               </button>
                             </div>
-                          ) : (
-                            <p style={{ fontSize: 11, color: "#4a4540", margin: 0 }}>Order accepted — manage via kitchen workflow</p>
                           )}
                         </div>
                       );
@@ -413,7 +325,6 @@ export default function LiveOrdersPage() {
             })}
           </div>
         )}
-
         <BillingModal
           open={billingOpen}
           onClose={() => setBillingOpen(false)}

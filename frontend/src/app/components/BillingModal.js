@@ -119,7 +119,6 @@ export default function BillingModal({
         method: "POST",
       });
 
-      // success
       if (onClosed) onClosed(result);
       onClose?.();
     } catch (e) {
@@ -144,7 +143,6 @@ export default function BillingModal({
         zIndex: 9999,
       }}
       onClick={(e) => {
-        // click outside to close
         if (e.target === e.currentTarget) onClose?.();
       }}
     >
@@ -197,8 +195,6 @@ export default function BillingModal({
         ) : (
           <>
             <div style={{ ...smallMuted, marginBottom: 10 }}>
-              Open Orders: <b style={{ color: "#fff" }}>{billData?.orders?.length || 0}</b>
-              {"  "} | {"  "}
               Open Total (server):{" "}
               <b style={{ color: "#fff" }}>{formatMoney(billData?.totalAmount)}</b>
             </div>
@@ -248,16 +244,6 @@ export default function BillingModal({
                   gap: 10,
                 }}
               >
-                <div style={{ flex: 1, ...smallMuted }}>Subtotal</div>
-                <div style={{ fontWeight: 900 }}>{formatMoney(subtotal)}</div>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
-                <div style={{ flex: 1, ...smallMuted }}>Tax</div>
-                <div style={{ fontWeight: 900 }}>{formatMoney(0)}</div>
-              </div>
-
-              <div style={{ display: "flex", alignItems: "center", gap: 10, marginTop: 8 }}>
                 <div style={{ flex: 1, fontWeight: 900 }}>Grand Total</div>
                 <div style={{ fontWeight: 900 }}>{formatMoney(subtotal)}</div>
               </div>
@@ -270,21 +256,17 @@ export default function BillingModal({
                 disabled={closing || mergedItems.length === 0}
                 title="Closes the bill and marks orders as billed/completed"
               >
-                {closing ? "Closing..." : "Close Bill"}
+                {closing ? "Closing..." : "Settle Bill"}
               </button>
-
-              <div style={{ marginTop: 8, ...smallMuted }}>
-                Closing will mark open orders as <b>COMPLETED</b> and set <b>billed=true</b>.
-              </div>
             </div>
           </>
         )}
         <BillingHistoryModal
-            open={historyOpen}
-            onClose={() => setHistoryOpen(false)}
-            tableId={tableId}
-            tableCode={tableCode}
-            styles={styles}
+          open={historyOpen}
+          onClose={() => setHistoryOpen(false)}
+          tableId={tableId}
+          tableCode={tableCode}
+          styles={styles}
         />
       </div>
     </div>

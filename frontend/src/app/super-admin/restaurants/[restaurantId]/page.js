@@ -1,5 +1,5 @@
 "use client";
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useRouter } from "next/navigation";
 
 const API = process.env.NEXT_PUBLIC_API_URL;
@@ -59,33 +59,43 @@ const PlanBadge = ({ value }) => {
   return <span style={{ padding: "3px 12px", borderRadius: 100, fontSize: 11, fontWeight: 700, background: "rgba(255,255,255,0.05)", color: colors[value] || "#8a8070", border: "1px solid rgba(255,255,255,0.08)" }}>{value}</span>;
 };
 
+const Btn = ({ onClick, disabled, children, variant = "gold" }) => {
+  const styles = {
+    gold: { background: "#c9a84c", color: "#0e0e0e", border: "none" },
+    ghost: { background: "rgba(255,255,255,0.04)", color: "#f5f0e8", border: "1px solid rgba(245,240,232,0.1)" },
+    danger: { background: "rgba(239,68,68,0.1)", color: "#f87171", border: "1px solid rgba(239,68,68,0.2)" },
+  };
+  return (
+    <button onClick={onClick} disabled={disabled}
+      style={{ padding: "10px 20px", borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, fontFamily: "inherit", transition: "all 0.2s", ...styles[variant] }}>
+      {children}
+    </button>
+  );
+};
+
 export default function SuperAdminRestaurantDetailPage() {
   const { restaurantId } = useParams();
   const router = useRouter();
-
   const [restaurant, setRestaurant] = useState(null);
   const [adminUser, setAdminUser] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-
-  // Edit state
-  const [activePanel, setActivePanel] = useState(null); // "details" | "subscription" | "limits" | "password"
+  const [activePanel, setActivePanel] = useState(null);
   const [saving, setSaving] = useState(false);
   const [successMsg, setSuccessMsg] = useState("");
 
-  // Details form
+  // Logo state
+  const [logoUploading, setLogoUploading] = useState(false);
+  const [logoPreview, setLogoPreview] = useState(null);
+  const logoInputRef = useRef(null);
+
+  // Forms
   const [form, setForm] = useState({ name: "", ownerName: "", ownerEmail: "", contact: "", isActive: true });
   const setF = (k) => (e) => setForm(p => ({ ...p, [k]: e.target.type === "checkbox" ? e.target.checked : e.target.value }));
-
-  // Subscription form
   const [subForm, setSubForm] = useState({ subscriptionStatus: "TRIAL", plan: "FREE", subscriptionEnd: "" });
   const setSub = (k) => (e) => setSubForm(p => ({ ...p, [k]: e.target.value }));
-
-  // Limits form
   const [limitsForm, setLimitsForm] = useState({ menuItemVideoLimit: 1, restaurantVideoLimit: 2 });
   const setLim = (k) => (e) => setLimitsForm(p => ({ ...p, [k]: e.target.value }));
-
-  // Password form
   const [pwForm, setPwForm] = useState({ newPassword: "", confirmPassword: "" });
   const setPw = (k) => (e) => setPwForm(p => ({ ...p, [k]: e.target.value }));
 
@@ -102,6 +112,7 @@ export default function SuperAdminRestaurantDetailPage() {
       if (!rRes.ok) throw new Error(rData.message || "Failed to load");
       const r = rData.restaurant;
       setRestaurant(r);
+      setLogoPreview(r.logoUrl ? (r.logoUrl.startsWith("http") ? r.logoUrl : `${API}${r.logoUrl}`) : null);
       setForm({ name: r.name || "", ownerName: r.ownerName || "", ownerEmail: r.ownerEmail || "", contact: r.contact || "", isActive: r.isActive ?? true });
       setSubForm({ subscriptionStatus: r.subscriptionStatus || "TRIAL", plan: r.plan || "FREE", subscriptionEnd: r.subscriptionEnd ? r.subscriptionEnd.slice(0, 10) : "" });
       setLimitsForm({ menuItemVideoLimit: r.menuItemVideoLimit ?? 1, restaurantVideoLimit: r.restaurantVideoLimit ?? 2 });
@@ -112,6 +123,40 @@ export default function SuperAdminRestaurantDetailPage() {
 
   useEffect(() => { fetchDetails(); }, [restaurantId]);
 
+  // ── Logo upload ─────────────────────────────────────────────────────────
+  const handleLogoFileChange = async (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    if (!file.type.startsWith("image/")) return alert("Please select an image file.");
+    if (file.size > 2 * 1024 * 1024) return alert("Image must be under 2MB.");
+
+    setLogoUploading(true);
+    try {
+      const token = localStorage.getItem("superAdminToken");
+      const formData = new FormData();
+      formData.append("logo", file);
+      formData.append("restaurantId", restaurantId);
+
+      const res = await fetch(`${API}/api/admin/upload/restaurant-logo`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${token}` },
+        body: formData,
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.message || "Upload failed");
+
+      const full = data.logoUrl.startsWith("http") ? data.logoUrl : `${API}${data.logoUrl}`;
+      setLogoPreview(full);
+      setRestaurant(prev => ({ ...prev, logoUrl: data.logoUrl }));
+      showSuccess("Logo uploaded ✓");
+    } catch (err) {
+      alert(err.message || "Logo upload failed");
+    } finally {
+      setLogoUploading(false);
+      if (logoInputRef.current) logoInputRef.current.value = "";
+    }
+  };
+
   const saveDetails = async () => {
     setSaving(true);
     try {
@@ -121,7 +166,7 @@ export default function SuperAdminRestaurantDetailPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
-      setRestaurant(data.restaurant);
+      setRestaurant(prev => ({ ...prev, ...data.restaurant }));
       setActivePanel(null);
       showSuccess("Restaurant details updated ✓");
     } catch (e) { alert(e.message); }
@@ -137,7 +182,7 @@ export default function SuperAdminRestaurantDetailPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
-      setRestaurant(data.restaurant);
+      setRestaurant(prev => ({ ...prev, ...data.restaurant }));
       setActivePanel(null);
       showSuccess("Subscription updated ✓");
     } catch (e) { alert(e.message); }
@@ -153,7 +198,7 @@ export default function SuperAdminRestaurantDetailPage() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.message);
-      setRestaurant(data.restaurant);
+      setRestaurant(prev => ({ ...prev, ...data.restaurant }));
       setActivePanel(null);
       showSuccess("Video limits updated ✓");
     } catch (e) { alert(e.message); }
@@ -178,20 +223,6 @@ export default function SuperAdminRestaurantDetailPage() {
     finally { setSaving(false); }
   };
 
-  const Btn = ({ onClick, disabled, children, variant = "gold" }) => {
-    const styles = {
-      gold: { background: "#c9a84c", color: "#0e0e0e" },
-      ghost: { background: "rgba(255,255,255,0.04)", color: "#f5f0e8", border: "1px solid rgba(245,240,232,0.1)" },
-      danger: { background: "rgba(239,68,68,0.1)", color: "#f87171", border: "1px solid rgba(239,68,68,0.2)" },
-    };
-    return (
-      <button onClick={onClick} disabled={disabled}
-        style={{ padding: "10px 20px", borderRadius: 12, fontSize: 13, fontWeight: 600, cursor: disabled ? "not-allowed" : "pointer", opacity: disabled ? 0.5 : 1, border: "none", fontFamily: "inherit", transition: "all 0.2s", ...styles[variant] }}>
-        {children}
-      </button>
-    );
-  };
-
   if (loading) return (
     <div style={{ minHeight: "60vh", display: "flex", alignItems: "center", justifyContent: "center", color: "#8a8070" }}>
       <div style={{ textAlign: "center" }}>
@@ -206,12 +237,20 @@ export default function SuperAdminRestaurantDetailPage() {
 
   return (
     <div style={{ maxWidth: 800, margin: "0 auto", fontFamily: "'DM Sans', sans-serif", color: "#f5f0e8" }}>
+      <style>{`@keyframes spin{to{transform:rotate(360deg)}}`}</style>
+
       {/* Back + Header */}
       <div style={{ display: "flex", alignItems: "center", gap: 16, marginBottom: 32 }}>
         <button onClick={() => router.push("/super-admin/restaurants")}
           style={{ width: 36, height: 36, borderRadius: "50%", background: "rgba(255,255,255,0.04)", border: "1px solid rgba(245,240,232,0.08)", cursor: "pointer", color: "#8a8070", fontSize: 16, display: "flex", alignItems: "center", justifyContent: "center" }}>
           ←
         </button>
+        {/* Logo in header */}
+        <div style={{ width: 44, height: 44, borderRadius: 12, border: "1.5px solid rgba(201,168,76,0.2)", background: "rgba(201,168,76,0.05)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+          {logoPreview
+            ? <img src={logoPreview} alt="logo" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+            : <span style={{ fontSize: 22 }}>🍽️</span>}
+        </div>
         <div>
           <h1 style={{ fontFamily: "'Playfair Display', serif", fontSize: 28, fontWeight: 700, letterSpacing: -0.5, margin: 0 }}>{restaurant.name}</h1>
           <p style={{ fontSize: 12, color: "#8a8070", marginTop: 4 }}>/{restaurant.slug}</p>
@@ -229,7 +268,38 @@ export default function SuperAdminRestaurantDetailPage() {
         </div>
       )}
 
-      {/* RESTAURANT DETAILS */}
+      {/* ── RESTAURANT LOGO ──────────────────────────────────────────────── */}
+      <SECTION title="Restaurant Logo">
+        <div style={{ display: "flex", alignItems: "center", gap: 20 }}>
+          {/* Preview */}
+          <div style={{ width: 80, height: 80, borderRadius: 16, border: "1.5px solid rgba(201,168,76,0.2)", background: "rgba(201,168,76,0.05)", overflow: "hidden", display: "flex", alignItems: "center", justifyContent: "center", flexShrink: 0 }}>
+            {logoPreview
+              ? <img src={logoPreview} alt="logo" style={{ width: "100%", height: "100%", objectFit: "contain" }} />
+              : <span style={{ fontSize: 36 }}>🍽️</span>}
+          </div>
+          {/* Controls */}
+          <div>
+            <p style={{ fontSize: 14, fontWeight: 600, color: "#f5f0e8", margin: "0 0 4px" }}>
+              {logoPreview ? "Change restaurant logo" : "Upload restaurant logo"}
+            </p>
+            <p style={{ fontSize: 12, color: "#8a8070", margin: "0 0 14px" }}>
+              PNG, JPG or WebP · Max 2MB · Recommended 256×256px square
+            </p>
+            <input ref={logoInputRef} type="file" accept="image/*" style={{ display: "none" }} onChange={handleLogoFileChange} />
+            <button
+              onClick={() => logoInputRef.current?.click()}
+              disabled={logoUploading}
+              style={{ padding: "9px 20px", borderRadius: 12, background: logoUploading ? "rgba(201,168,76,0.1)" : "#c9a84c", border: "none", color: logoUploading ? "#c9a84c" : "#0e0e0e", fontSize: 13, fontWeight: 700, cursor: logoUploading ? "not-allowed" : "pointer", fontFamily: "inherit", display: "inline-flex", alignItems: "center", gap: 8, transition: "all 0.2s" }}>
+              {logoUploading
+                ? <><span style={{ width: 13, height: 13, border: "2px solid #c9a84c", borderTopColor: "transparent", borderRadius: "50%", display: "inline-block", animation: "spin 0.7s linear infinite" }} /> Uploading…</>
+                : logoPreview ? "📷 Change Logo" : "📷 Upload Logo"}
+            </button>
+            {logoPreview && <p style={{ fontSize: 12, color: "#10b981", marginTop: 10 }}>✓ Logo is set</p>}
+          </div>
+        </div>
+      </SECTION>
+
+      {/* ── RESTAURANT DETAILS ───────────────────────────────────────────── */}
       <SECTION title="Restaurant Details">
         {activePanel !== "details" ? (
           <>
@@ -264,7 +334,7 @@ export default function SuperAdminRestaurantDetailPage() {
         )}
       </SECTION>
 
-      {/* SUBSCRIPTION */}
+      {/* ── SUBSCRIPTION ─────────────────────────────────────────────────── */}
       <SECTION title="Subscription & Plan">
         {activePanel !== "subscription" ? (
           <>
@@ -286,7 +356,7 @@ export default function SuperAdminRestaurantDetailPage() {
         )}
       </SECTION>
 
-      {/* VIDEO LIMITS */}
+      {/* ── VIDEO LIMITS ─────────────────────────────────────────────────── */}
       <SECTION title="Video Limits">
         {activePanel !== "limits" ? (
           <>
@@ -302,8 +372,8 @@ export default function SuperAdminRestaurantDetailPage() {
           </>
         ) : (
           <>
-            <Input label="Per-Item Video Limit (0–10)" type="number" min="0" max="10" value={limitsForm.menuItemVideoLimit} onChange={setLim("menuItemVideoLimit")} hint="Max videos the admin can upload per menu item" />
-            <Input label="Restaurant Video Limit (0–20)" type="number" min="0" max="20" value={limitsForm.restaurantVideoLimit} onChange={setLim("restaurantVideoLimit")} hint="Total videos allowed across the entire restaurant" />
+            <Input label="Per-Item Video Limit (0–10)" type="number" min="0" max="10" value={limitsForm.menuItemVideoLimit} onChange={setLim("menuItemVideoLimit")} hint="Max videos per menu item" />
+            <Input label="Restaurant Video Limit (0–20)" type="number" min="0" max="20" value={limitsForm.restaurantVideoLimit} onChange={setLim("restaurantVideoLimit")} hint="Total videos across entire restaurant" />
             <div style={{ display: "flex", gap: 10 }}>
               <Btn onClick={saveLimits} disabled={saving}>{saving ? "Saving..." : "Save Limits"}</Btn>
               <Btn variant="ghost" onClick={() => setActivePanel(null)}>Cancel</Btn>
@@ -312,7 +382,7 @@ export default function SuperAdminRestaurantDetailPage() {
         )}
       </SECTION>
 
-      {/* ADMIN USER */}
+      {/* ── ADMIN USER ───────────────────────────────────────────────────── */}
       <SECTION title="Restaurant Admin Account">
         {adminUser ? (
           <>
@@ -324,8 +394,6 @@ export default function SuperAdminRestaurantDetailPage() {
         ) : (
           <p style={{ fontSize: 13, color: "#8a8070", padding: "8px 0" }}>No admin account linked to this restaurant yet.</p>
         )}
-
-        {/* CHANGE PASSWORD */}
         {adminUser && (
           <div style={{ marginTop: 20, paddingTop: 20, borderTop: "1px solid rgba(245,240,232,0.05)" }}>
             {activePanel !== "password" ? (

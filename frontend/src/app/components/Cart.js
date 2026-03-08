@@ -66,17 +66,7 @@ export default function Cart({ cartItems, onIncrease, onDecrease, orderPlaced, o
         background: "#161410",
         position: "sticky", bottom: 0,
       }}>
-        {/* Summary */}
-        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
-          <div>
-            <p style={{ fontSize: 12, color: "#8a8070", margin: 0 }}>{cartCount} item{cartCount !== 1 ? "s" : ""}</p>
-            <p style={{ fontSize: 22, fontWeight: 700, color: "#c9a84c", margin: "2px 0 0", fontFamily: "'Playfair Display', serif" }}>{moneyINR(cartTotal)}</p>
-          </div>
-          <div style={{ textAlign: "right" }}>
-            <p style={{ fontSize: 11, color: "#4a4540", margin: 0 }}>Taxes included</p>
-            <p style={{ fontSize: 11, color: "#4a4540", margin: "2px 0 0" }}>Pay at counter</p>
-          </div>
-        </div>
+        
 
         {/* Place Order button */}
         <button
@@ -92,7 +82,7 @@ export default function Cart({ cartItems, onIncrease, onDecrease, orderPlaced, o
             opacity: orderPlaced ? 0.6 : 1,
           }}
         >
-          {orderPlaced ? "✓ Order Placed!" : `Place Order · ${moneyINR(cartTotal)}`}
+          {orderPlaced ? "✓ Order Placed!" : `Place Order `}
         </button>
 
         {/* Safe area for iPhone */}
