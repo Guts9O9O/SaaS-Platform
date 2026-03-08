@@ -3,7 +3,11 @@ const authWaiter = require("../../middleware/authWaiter");
 const ctrl = require("../../controllers/waiter/table.controller");
 
 router.use(authWaiter);
+
 router.get("/my-tables", ctrl.myTables);
-router.get("/orders", ctrl.getTableOrders); // ✅ NEW: fetch all unbilled orders for assigned tables
+router.get("/orders",    ctrl.getTableOrders);
+
+// ✅ NEW: Waiter marks an order as delivered (SERVED)
+router.patch("/orders/:orderId/deliver", ctrl.markDelivered);
 
 module.exports = router;

@@ -194,10 +194,10 @@ export default function BillingModal({
           <div style={cardStyle}>No bill data.</div>
         ) : (
           <>
-            <div style={{ ...smallMuted, marginBottom: 10 }}>
+            {/* <div style={{ ...smallMuted, marginBottom: 10 }}>
               Open Total (server):{" "}
               <b style={{ color: "#fff" }}>{formatMoney(billData?.totalAmount)}</b>
-            </div>
+            </div> */}
 
             <div
               style={{

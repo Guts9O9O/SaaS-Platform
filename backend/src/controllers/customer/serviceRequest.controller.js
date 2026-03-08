@@ -77,6 +77,8 @@ exports.requestBill = async (req, res) => {
       restaurantId, tableId, type: "BILL", status: "OPEN",
     }).sort({ createdAt: -1 });
     if (existing) {
+      const io = req.app.get("io");
+      if (io) await emitBillRequestToWaiter(io, { created: existing, restaurantId, tableId, tableCode });
       return res.status(200).json({ message: "Bill request already pending", request: existing });
     }
     const created = await ServiceRequest.create({
@@ -111,6 +113,15 @@ exports.createServiceRequest = async (req, res) => {
       restaurantId, tableId, type, status: "OPEN",
     }).sort({ createdAt: -1 });
     if (existing) {
+      // Re-emit even for duplicates so waiter always gets notified
+      const io = req.app.get("io");
+      if (io) {
+        if (type === "WAITER") {
+          await emitWaiterCalled(io, { created: existing, restaurantId, tableId, tableCode });
+        } else {
+          await emitBillRequestToWaiter(io, { created: existing, restaurantId, tableId, tableCode });
+        }
+      }
       return res.status(200).json({ message: `${type} request already pending`, request: existing });
     }
     const created = await ServiceRequest.create({

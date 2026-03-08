@@ -25,7 +25,7 @@ exports.getLiveOrdersByTable = async (req, res) => {
     const orders = await Order.find({
       restaurantId,
       billed: false,
-      status: { $nin: ["CANCELLED", "REJECTED"] },
+      status: { $in: ["ACCEPTED", "IN_KITCHEN", "READY", "SERVED"] }
     })
       .sort({ createdAt: -1 })
       .lean();

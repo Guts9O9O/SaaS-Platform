@@ -265,6 +265,8 @@ router.patch("/:id/status", adminAuth, async (req, res) => {
         orderId: order._id.toString(),
         order,
       });
+      // ✅ Also emit order:updated for waiter dashboard live sync
+      io.to(restaurantRoom).emit("order:updated", order);
 
       io.to(`order_${order._id.toString()}`).emit("order_status", {
         orderId: order._id.toString(),

@@ -130,9 +130,17 @@ io.on("connection", (socket) => {
       const user = await User.findById(decoded.userId).select("_id role restaurantId");
       if (!user) return;
       if (user.role !== "STAFF") return;
-      const room = `waiter_${user._id}`;
-      socket.join(room);
-      console.log(`Socket ${socket.id} joined ${room} (waiter)`);
+      // Join personal waiter room
+      const waiterRoom = `waiter_${user._id}`;
+      socket.join(waiterRoom);
+      // Also join restaurant room so order:updated from admin reaches waiter
+      if (user.restaurantId) {
+        const restaurantRoom = `restaurant_${user.restaurantId}`;
+        socket.join(restaurantRoom);
+        console.log(`Socket ${socket.id} joined ${waiterRoom} + ${restaurantRoom} (waiter)`);
+      } else {
+        console.log(`Socket ${socket.id} joined ${waiterRoom} (waiter, no restaurantId)`);
+      }
     } catch (e) {
       console.log("join_waiter_room error:", e.message);
     }

@@ -32,7 +32,27 @@ const BILL_COOLDOWN_MS        = 2 * 60 * 1000;
 const SESSION_TIMEOUT_MS      = 2 * 60 * 60 * 1000;
 const RADIUS                  = 8;
 const CIRCUMFERENCE           = 2 * Math.PI * RADIUS;
+const BILL_CLOSED_LOGOUT_MS = 15 * 60 * 1000;
 
+function ThankYouScreen({ restaurantName }) {
+  return (
+    <>
+      <style>{`
+        @keyframes tyFadeIn { from { opacity:0; transform:translateY(24px); } to { opacity:1; transform:translateY(0); } }
+        @keyframes tyPulse  { 0%,100% { transform:scale(1); opacity:0.8; } 50% { transform:scale(1.08); opacity:1; } }
+        @keyframes shimmerGold { 0% { background-position:200% center; } 100% { background-position:-200% center; } }
+      `}</style>
+      <div style={{ minHeight:"100vh", background:"#0e0e0e", display:"flex", flexDirection:"column", alignItems:"center", justifyContent:"center", padding:"40px 24px", fontFamily:"'DM Sans', sans-serif", textAlign:"center" }}>
+        <div style={{ width:96, height:96, borderRadius:"50%", background:"linear-gradient(135deg, rgba(201,168,76,0.15), rgba(201,168,76,0.05))", border:"1.5px solid rgba(201,168,76,0.3)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:44, marginBottom:32, animation:"tyPulse 2.5s ease-in-out infinite" }}>🙏</div>
+        <h1 style={{ fontFamily:"'Playfair Display', serif", fontSize:36, fontWeight:700, letterSpacing:-0.5, margin:"0 0 14px", background:"linear-gradient(90deg, #c9a84c, #f0d98a, #c9a84c)", backgroundSize:"200% auto", WebkitBackgroundClip:"text", WebkitTextFillColor:"transparent", backgroundClip:"text", animation:"tyFadeIn 0.6s cubic-bezier(0.16,1,0.3,1) 0.1s both, shimmerGold 3s linear infinite" }}>Thank You!</h1>
+        <p style={{ fontSize:16, color:"#c8bfb0", margin:"0 0 8px", animation:"tyFadeIn 0.6s cubic-bezier(0.16,1,0.3,1) 0.2s both" }}>We hope you enjoyed your visit</p>
+        {restaurantName && <p style={{ fontSize:13, color:"#8a8070", margin:"0 0 48px", animation:"tyFadeIn 0.6s cubic-bezier(0.16,1,0.3,1) 0.3s both" }}>at <span style={{ color:"#c9a84c", fontWeight:600 }}>{restaurantName}</span></p>}
+        <div style={{ width:80, height:1, background:"linear-gradient(90deg, transparent, rgba(201,168,76,0.4), transparent)", marginBottom:32 }} />
+        <p style={{ fontSize:12, color:"#4a4540", letterSpacing:1.5, textTransform:"uppercase" }}>Visit again soon ✦</p>
+      </div>
+    </>
+  );
+}
 // ─── SPLASH SCREEN ───────────────────────────────────────────────────────────
 function SplashScreen({ restaurantName, logoUrl }) {
   return (
@@ -56,7 +76,7 @@ function SplashScreen({ restaurantName, logoUrl }) {
       }}>
         {/* Decorative ring */}
         <div style={{
-          width: 96, height: 96,
+          width: 116, height: 116,
           borderRadius: "50%",
           border: "1.5px solid rgba(201,168,76,0.2)",
           display: "flex", alignItems: "center", justifyContent: "center",
@@ -65,7 +85,7 @@ function SplashScreen({ restaurantName, logoUrl }) {
           position: "relative",
         }}>
           <div style={{
-            width: 72, height: 72,
+            width: 102, height: 102,
             borderRadius: "50%",
             background: "linear-gradient(135deg, rgba(201,168,76,0.15), rgba(201,168,76,0.05))",
             border: "1px solid rgba(201,168,76,0.3)",
@@ -108,7 +128,7 @@ function SplashScreen({ restaurantName, logoUrl }) {
           backgroundClip: "text",
           animation: "splashFadeIn 0.6s cubic-bezier(0.16,1,0.3,1) 0.2s both, shimmerGold 3s linear infinite",
         }}>
-          DineFlow
+          {restaurantName || "Loading..."}
         </h1>
 
         {/* Restaurant name */}
@@ -120,7 +140,7 @@ function SplashScreen({ restaurantName, logoUrl }) {
           letterSpacing: 0.3,
           animation: "splashFadeIn 0.6s cubic-bezier(0.16,1,0.3,1) 0.35s both",
         }}>
-          {restaurantName || "Loading..."}
+          DineFlow
         </p>
 
         {/* Progress bar */}
@@ -160,9 +180,11 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
   const [billRequested, setBillRequested]     = useState(false);
   const [search, setSearch]                   = useState("");
   const [activeCategoryKey, setActiveCategoryKey] = useState("ALL");
+  const [vegFilter, setVegFilter] = useState("ALL"); // "ALL" | "VEG" | "NONVEG"
   const [waiterCalled, setWaiterCalled]       = useState(false);
   const [waiterCooldown, setWaiterCooldown]   = useState(0);
   const [videoModal, setVideoModal]           = useState({ open: false, url: "", title: "" });
+  const [showBillConfirm, setShowBillConfirm] = useState(false);
 
   // ── SPLASH: show for 3.5s then reveal menu ───────────────────────────────
   const [showSplash, setShowSplash]           = useState(true);
@@ -174,7 +196,8 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
   const joinedOrdersRef       = useRef(new Set());
   const waiterCooldownRef     = useRef(null);
   const waiterIntervalRef     = useRef(null);
-
+  const [showThankYou, setShowThankYou] = useState(false);
+  const billClosedTimerRef = useRef(null)
   // ── Splash timer ─────────────────────────────────────────────────────────
   useEffect(() => {
     const t = setTimeout(() => setShowSplash(false), 3500);
@@ -285,6 +308,21 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
     }
   }, [activeTab, tableOrders]);
 
+  useEffect(() => {
+    if (!context?.restaurant?._id) return;
+    const socket = io(process.env.NEXT_PUBLIC_API_URL, { withCredentials: true, transports: ["websocket", "polling"] });
+    socket.on("bill_closed", () => {
+      if (billClosedTimerRef.current) clearTimeout(billClosedTimerRef.current);
+      if (feedbackTimerRef.current)  { clearTimeout(feedbackTimerRef.current);  feedbackTimerRef.current  = null; }
+      if (sessionTimerRef.current)   { clearTimeout(sessionTimerRef.current);   sessionTimerRef.current   = null; }
+      billClosedTimerRef.current = setTimeout(async () => {
+        try { await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/customer/auth/logout`, { method:"POST", credentials:"include" }); } catch {}
+        setShowThankYou(true);
+      }, BILL_CLOSED_LOGOUT_MS);
+    });
+    return () => { socket.disconnect(); };
+  }, [context?.restaurant?._id]);
+
   // ── Waiter call ───────────────────────────────────────────────────────────
   async function callWaiter() {
     const res = await fetch(`${process.env.NEXT_PUBLIC_API_URL}/api/customer/requests`, {
@@ -328,6 +366,7 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
     if (waiterCooldownRef.current) clearTimeout(waiterCooldownRef.current);
     if (waiterIntervalRef.current) clearInterval(waiterIntervalRef.current);
     if (billCooldownTimerRef.current) clearTimeout(billCooldownTimerRef.current);
+    if (billClosedTimerRef.current) clearTimeout(billClosedTimerRef.current);
     if (feedbackTimerRef.current) clearTimeout(feedbackTimerRef.current);
     if (sessionTimerRef.current) clearTimeout(sessionTimerRef.current);
   }, []);
@@ -359,19 +398,24 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
     // Hide items where isActive is explicitly false
     const withActive = by.map((cat) => ({
       ...cat,
-      items: (cat.items || []).filter((it) => it.isActive !== false),
+      items: (cat.items || []).filter((it) => {
+        if (it.isActive === false) return false;
+        if (vegFilter === "VEG") return it.isVeg === true;
+        if (vegFilter === "NONVEG") return it.isVeg === false;
+        return true;
+      }),
     }));
 
     if (!q) return withActive;
     return withActive
       .map((cat) => ({ ...cat, items: (cat.items || []).filter((it) => String(it.name || "").toLowerCase().includes(q)) }))
       .filter((cat) => (cat.items || []).length > 0);
-  }, [menuData, search, activeCategoryKey]);
+    }, [menuData, search, activeCategoryKey, vegFilter]);
 
   const waiterProgress = waiterCooldown / WAITER_COOLDOWN_SECONDS;
-
+  const BILLABLE_ORDER_STATUSES = ["ACCEPTED", "IN_KITCHEN", "READY", "SERVED", "COMPLETED"];
   // ─── GUARDS ───────────────────────────────────────────────────────────────
-
+  if (showThankYou) return <ThankYouScreen restaurantName={context?.restaurant?.name} />;
   // Show splash for first 3.5s regardless
   if (showSplash) {
     return <SplashScreen restaurantName={context?.restaurant?.name} logoUrl={context?.restaurant?.logoUrl} />;
@@ -423,7 +467,7 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
         .menu-title{font-family:'Playfair Display',serif;font-size:28px;font-weight:700;line-height:1.1;letter-spacing:-0.5px;color:#f5f0e8;}
         .menu-title em{font-style:italic;color:#c9a84c;}
         .menu-welcome{font-size:12px;color:#c9a84c;font-weight:500;margin-top:6px;}
-        .menu-avatar{width:64px;height:64px;border-radius:50%;border:1.5px solid rgba(201,168,76,0.3);background:linear-gradient(135deg,#1a1612,#2a2018);display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-size:24px;font-weight:700;color:#c9a84c;flex-shrink:0;}
+        .menu-avatar{width:84px;height:84px;border-radius:50%;border:1.5px solid rgba(201,168,76,0.3);background:linear-gradient(135deg,#1a1612,#2a2018);display:flex;align-items:center;justify-content:center;font-family:'Playfair Display',serif;font-size:24px;font-weight:700;color:#c9a84c;flex-shrink:0;}
         .search-wrap{position:relative;margin-bottom:24px;}
         .search-icon{position:absolute;left:16px;top:50%;transform:translateY(-50%);color:#8a8070;}
         .search-input{width:100%;padding:14px 16px 14px 46px;background:rgba(255,255,255,0.04);border:1px solid rgba(245,240,232,0.07);border-radius:16px;color:#f5f0e8;font-size:14px;font-family:'DM Sans',sans-serif;outline:none;transition:border-color 0.2s,box-shadow 0.2s;}
@@ -538,6 +582,36 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
           {/* CATEGORIES */}
           {activeTab === "menu" && (
             <div className="cat-section">
+              <div style={{ display:"flex", gap:6, marginBottom:16 }}>
+                {[
+                  { key:"ALL",    label:"All" },
+                  { key:"VEG",    label:<span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:14,height:14,border:"2px solid #16a34a",borderRadius:3,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{width:6,height:6,borderRadius:"50%",background:"#16a34a"}}></span></span>Veg</span> },
+                  { key:"NONVEG", label:<span style={{display:"inline-flex",alignItems:"center",gap:6}}><span style={{width:14,height:14,border:"2px solid #9b2226",borderRadius:3,display:"inline-flex",alignItems:"center",justifyContent:"center",flexShrink:0}}><span style={{width:6,height:6,borderRadius:"50%",background:"#9b2226"}}></span></span>Non-Veg</span> },
+                ].map(({ key, label }) => (
+                  <button key={key}
+                    onClick={() => setVegFilter(key)}
+                    className="cat-pill"
+                    style={{
+                      background: vegFilter === key
+                        ? key === "VEG"    ? "rgba(22,163,74,0.15)"
+                        : key === "NONVEG" ? "rgba(220,38,38,0.15)"
+                        : "#c9a84c"
+                        : "rgba(255,255,255,0.03)",
+                      border: vegFilter === key
+                        ? key === "VEG"    ? "1px solid rgba(22,163,74,0.4)"
+                        : key === "NONVEG" ? "1px solid rgba(220,38,38,0.4)"
+                        : "1px solid #c9a84c"
+                        : "1px solid rgba(245,240,232,0.08)",
+                      color: vegFilter === key
+                        ? key === "VEG"    ? "#22c55e"
+                        : key === "NONVEG" ? "#f87171"
+                        : "#0e0e0e"
+                        : "#8a8070",
+                    }}>
+                    {label}
+                  </button>
+                ))}
+              </div>
               <div className="cat-label">Categories</div>
               <div className="cat-scroll">
                 {[{ _keyId: "ALL", name: "All" }, ...((Array.isArray(menuData) ? menuData : []).map((c) => ({ _keyId: c._keyId, name: c.name })))].map((c) => (
@@ -598,19 +672,85 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
                     </div>
                   ))}
                   {(() => {
-                    const grand = tableOrders.reduce((sum, order) =>
-                      sum + (order.items || []).reduce((s, it) => s + (it.price || 0) * (it.quantity || 1), 0), 0);
+                    const billableOrders = tableOrders.filter((order) =>
+                      BILLABLE_ORDER_STATUSES.includes(order?.status)
+                    );
+
+                    const grand = billableOrders.reduce(
+                      (sum, order) =>
+                        sum +
+                        (order.items || []).reduce(
+                          (s, it) => s + Number(it.price || 0) * Number(it.quantity || 1),
+                          0
+                        ),
+                      0
+                    );
+
                     if (grand <= 0) return null;
+
                     return (
-                      <div style={{ background:"#161410", border:"1px solid rgba(201,168,76,0.2)", borderRadius:20, padding:"18px 20px", marginTop:4 }}>
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center", marginBottom:10 }}>
-                          <span style={{ fontSize:11, letterSpacing:1.5, textTransform:"uppercase", color:"#8a8070", fontWeight:600 }}>Total Orders</span>
-                          <span style={{ fontSize:11, color:"#4a4540" }}>{tableOrders.length} order{tableOrders.length !== 1 ? "s" : ""}</span>
+                      <div
+                        style={{
+                          background: "#161410",
+                          border: "1px solid rgba(201,168,76,0.2)",
+                          borderRadius: 20,
+                          padding: "18px 20px",
+                          marginTop: 4,
+                        }}
+                      >
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                            marginBottom: 10,
+                          }}
+                        >
+                          <span
+                            style={{
+                              fontSize: 11,
+                              letterSpacing: 1.5,
+                              textTransform: "uppercase",
+                              color: "#8a8070",
+                              fontWeight: 600,
+                            }}
+                          >
+                            Total Orders
+                          </span>
+                          <span style={{ fontSize: 11, color: "#4a4540" }}>
+                            {billableOrders.length} order{billableOrders.length !== 1 ? "s" : ""}
+                          </span>
                         </div>
-                        <div style={{ height:1, background:"linear-gradient(90deg, rgba(201,168,76,0.3), transparent)", marginBottom:14 }} />
-                        <div style={{ display:"flex", justifyContent:"space-between", alignItems:"center" }}>
-                          <span style={{ fontSize:14, color:"#c8bfb0", fontWeight:500 }}>Grand Total</span>
-                          <span style={{ fontFamily:"'Playfair Display', serif", fontSize:22, fontWeight:700, color:"#c9a84c" }}>{moneyINR(grand)}</span>
+
+                        <div
+                          style={{
+                            height: 1,
+                            background:
+                              "linear-gradient(90deg, rgba(201,168,76,0.3), transparent)",
+                            marginBottom: 14,
+                          }}
+                        />
+
+                        <div
+                          style={{
+                            display: "flex",
+                            justifyContent: "space-between",
+                            alignItems: "center",
+                          }}
+                        >
+                          <span style={{ fontSize: 14, color: "#c8bfb0", fontWeight: 500 }}>
+                            Grand Total
+                          </span>
+                          <span
+                            style={{
+                              fontFamily: "'Playfair Display', serif",
+                              fontSize: 22,
+                              fontWeight: 700,
+                              color: "#c9a84c",
+                            }}
+                          >
+                            {moneyINR(grand)}
+                          </span>
                         </div>
                       </div>
                     );
@@ -647,8 +787,6 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
                   disabled={waiterCalled}
                   onClick={async () => {
                     try {
-                      const ok = window.confirm(`Call waiter for Table ${context.table.tableCode}?`);
-                      if (!ok) return;
                       await callWaiter();
                       startWaiterCooldown();
                     } catch (e) { alert(e?.message || "Failed to call waiter"); }
@@ -676,10 +814,7 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
                   disabled={billRequested}
                   onClick={async () => {
                     try {
-                      const ok = window.confirm(`Request bill for Table ${context.table.tableCode}?`);
-                      if (!ok) return;
-                      await requestBill();
-                      startBillCooldown();
+                      setShowBillConfirm(true);
                     } catch (e) { alert(e?.message || "Failed to request bill"); }
                   }}
                 >
@@ -720,6 +855,31 @@ export default function ClientMenu({ restaurantSlug, tableCode }) {
               </div>
               <div style={{ padding:12 }}>
                 <video src={videoModal.url} controls autoPlay playsInline style={{ width:"100%", borderRadius:16, background:"#000" }} />
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* BILL CONFIRM MODAL */}
+        {showBillConfirm && (
+          <div className="modal-overlay" onClick={() => setShowBillConfirm(false)}>
+            <div style={{ background:"#161410", border:"1px solid rgba(201,168,76,0.2)", borderRadius:24, padding:"32px 28px", maxWidth:300, width:"100%", textAlign:"center" }} onClick={e => e.stopPropagation()}>
+              <div style={{ width:52, height:52, borderRadius:"50%", background:"rgba(201,168,76,0.1)", border:"1px solid rgba(201,168,76,0.25)", display:"flex", alignItems:"center", justifyContent:"center", fontSize:24, margin:"0 auto 16px" }}>💳</div>
+              <h3 style={{ fontFamily:"'Playfair Display', serif", fontSize:20, fontWeight:700, color:"#f5f0e8", margin:"0 0 8px" }}>Request Bill?</h3>
+              <p style={{ fontSize:13, color:"#8a8070", margin:"0 0 24px", lineHeight:1.5 }}>Your waiter will bring your bill to the table</p>
+              <div style={{ display:"flex", gap:10 }}>
+                <button onClick={() => setShowBillConfirm(false)}
+                  style={{ flex:1, padding:"12px", borderRadius:12, background:"rgba(255,255,255,0.04)", border:"1px solid rgba(245,240,232,0.08)", color:"#8a8070", fontSize:14, fontWeight:600, cursor:"pointer", fontFamily:"inherit" }}>
+                  Cancel
+                </button>
+                <button onClick={async () => {
+                    setShowBillConfirm(false);
+                    try { await requestBill(); startBillCooldown(); }
+                    catch (e) { alert(e?.message || "Failed to request bill"); }
+                  }}
+                  style={{ flex:1, padding:"12px", borderRadius:12, background:"#c9a84c", border:"none", color:"#0e0e0e", fontSize:14, fontWeight:700, cursor:"pointer", fontFamily:"inherit" }}>
+                  Yes, Request
+                </button>
               </div>
             </div>
           </div>
